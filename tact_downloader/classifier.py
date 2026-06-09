@@ -103,9 +103,14 @@ def extract_semester(raw_title: str) -> str:
         for pattern, label in SEMESTER_PATTERNS:
             if re.search(pattern, block):
                 return label
+        # 未確定のような疑似学期ラベルは空文字列として扱う
         if "/" in block:
-            return block.split("/")[0].strip()
-        return block
+            candidate = block.split("/")[0].strip()
+            for pattern, label in SEMESTER_PATTERNS:
+                if re.search(pattern, candidate):
+                    return label
+            return ""
+        return ""
 
     return ""
 

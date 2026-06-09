@@ -96,7 +96,13 @@ def main() -> None:
             print(f"エラー: サイトID '{args.site}' が見つかりません。")
             sys.exit(1)
     elif args.all:
-        targets = site_infos
+        targets = [s for s in site_infos if s.semester]
+        if not targets:
+            print("学期情報のある講義サイトが見つかりませんでした。")
+            sys.exit(0)
+        skipped = len(site_infos) - len(targets)
+        if skipped > 0:
+            print(f"学期情報なしのため {skipped} 件のサイトをスキップしました。")
     else:
         # 対話的に選択
         print(f"\n全 {len(site_infos)} 件の講義サイト:\n")

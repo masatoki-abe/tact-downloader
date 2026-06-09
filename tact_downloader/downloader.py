@@ -54,6 +54,8 @@ def build_download_path(site_info: SiteInfo) -> Path:
     else:
         parts.append(site_info.raw_title)
 
+    parts.append("TACTリソース")
+
     return vault / Path(*parts)
 
 
