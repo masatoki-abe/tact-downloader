@@ -1,4 +1,5 @@
 import json
+import re
 from urllib.parse import urljoin, urlparse, unquote
 
 import requests
@@ -55,9 +56,18 @@ class TACTClient:
         for item in contents:
             url = item.get("url", "")
             if url and not url.endswith("/"):
+                parsed = urlparse(url)
+                path = unquote(parsed.path.rstrip("/"))
+                # URLから /group/{group_id}/... の相対パスを抽出
+                match = re.search(r"/group/[^/]+/(.+)", path)
+                if match:
+                    relative_path = match.group(1)
+                else:
+                    relative_path = path.rsplit("/", 1)[-1]
                 resources.append({
                     "url": url,
-                    "name": unquote(url.rstrip("/").rsplit("/", 1)[-1]),
+                    "name": relative_path.rsplit("/", 1)[-1],
+                    "relative_path": relative_path,
                     "type": item.get("type", "resource"),
                     "size": item.get("size"),
                 })

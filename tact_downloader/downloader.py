@@ -65,10 +65,37 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def _sanitize_segment(segment: str) -> str:
+    """ファイル・ディレクトリ名の1セグメントをサニタイズする。"""
+    invalid_chars = '<>:"\\|?*'
+    for c in invalid_chars:
+        segment = segment.replace(c, "_")
+    segment = "".join(c for c in segment if ord(c) >= 32)
+    segment = segment.strip(". ")
+    return segment if segment else "unnamed_file"
+
+
+def safe_relative_path(relative_path: str) -> str:
+    """TACT上の相対パスを安全なファイルシステムパスに変換する。
+
+    各セグメント（/区切り）を個別にサニタイズし、ディレクトリ階層を維持する。
+    URLから抽出した相対パス（例: "week1/handout.pdf"）を想定。
+    """
+    segments = []
+    for seg in relative_path.split("/"):
+        if seg == "" or seg == "..":
+            continue
+        segments.append(_sanitize_segment(seg))
+    if not segments:
+        return "unnamed_file"
+    return "/".join(segments)
+
+
 def safe_filename(name: str, url: str) -> str:
     """ファイル名として安全な文字列を生成する。
 
     URLからクエリパラメータを除去し、ファイル名として不適切な文字を置換する。
+    後方互換性のため維持。新規コードでは safe_relative_path を使用すること。
     """
     # クエリ文字列とフラグメントを除去
     from urllib.parse import urlparse, unquote

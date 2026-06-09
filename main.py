@@ -20,7 +20,7 @@ from tact_downloader.client import TACTClient
 from tact_downloader.downloader import (
     build_download_path,
     ensure_dir,
-    safe_filename,
+    safe_relative_path,
     is_downloaded,
     mark_downloaded,
 )
@@ -159,21 +159,23 @@ def main() -> None:
 
         for res in resources:
             url = res["url"]
-            filename = safe_filename(res["name"], url)
-            save_path = dl_dir / filename
+            rel = safe_relative_path(res["relative_path"])
+            save_path = dl_dir / rel
 
             if not args.force and is_downloaded(url):
-                print(f"    [スキップ] {filename}")
+                print(f"    [スキップ] {rel}")
                 total_skipped += 1
                 continue
 
             if args.dry_run:
-                print(f"    [dry-run] {filename}")
+                print(f"    [dry-run] {rel}")
                 total_new += 1
                 continue
 
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+
             try:
-                print(f"    [DL中]     {filename}", end="", flush=True)
+                print(f"    [DL中]     {rel}", end="", flush=True)
                 client.download_resource(url, str(save_path))
                 mark_downloaded(url, str(save_path))
                 size_str = ""
@@ -185,10 +187,10 @@ def main() -> None:
                         size_str = f" ({size / 1024:.1f} KB)"
                     else:
                         size_str = f" ({size / (1024 * 1024):.1f} MB)"
-                print(f"\r    [完了]     {filename}{size_str}")
+                print(f"\r    [完了]     {rel}{size_str}")
                 total_new += 1
             except Exception as e:
-                print(f"\r    [失敗]     {filename} - {e}")
+                print(f"\r    [失敗]     {rel} - {e}")
 
     print(f"\n{'=' * 60}")
     print(f"  完了: {total_new} 件ダウンロード, {total_skipped} 件スキップ")
