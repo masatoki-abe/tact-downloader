@@ -1,112 +1,12 @@
 import json
-import re
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import List, Optional, Tuple
-from urllib.parse import urljoin, urlparse
 
-import pyotp
 import requests
 
-from tact_downloader import parse_totp_seed, COOKIE_FILE
-
-
-class FormParser(HTMLParser):
-    """CASログインフォームから input 要素を抽出するパーサー。"""
-
-    def __init__(self):
-        super().__init__()
-        self.params: dict[str, str] = {}
-        self.form_action: Optional[str] = None
-
-    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
-        attr_dict = dict(attrs)
-        if tag == "form":
-            self.form_action = attr_dict.get("action", "")
-        if tag == "input":
-            name = attr_dict.get("name", "")
-            value = attr_dict.get("value", "")
-            if name:
-                self.params[name] = value
-
-
-def extract_cas_url(html: str, base_url: str) -> Optional[str]:
-    """ログインページのHTMLからCAS認証URLを抽出する。"""
-    # form action から取得
-    match = re.search(r'<form[^>]+action="([^"]+)"', html)
-    if match:
-        action = match.group(1)
-        if "cas" in action.lower() or "login" in action.lower():
-            return urljoin(base_url, action)
-    # meta refresh / JavaScript redirect から取得
-    match = re.search(r'window\.location\s*=\s*"([^"]+)"', html)
-    if match:
-        return match.group(1)
-    match = re.search(r'window\.location\.replace\("([^"]+)"\)', html)
-    if match:
-        return match.group(1)
-    # XML の場合
-    match = re.search(r'form[=\s]+"([^"]*cas[^"]*)"', html, re.IGNORECASE)
-    if match:
-        return match.group(1)
-    return None
-
-
-def get_totp_token(seed: str) -> str:
-    """TOTPシード値から現在のトークンを生成する。"""
-    seed = parse_totp_seed(seed)
-    totp = pyotp.TOTP(seed)
-    return totp.now()
-
-
-def _try_direct_session(
-    session: requests.Session,
-    base_url: str,
-    username: str,
-    password: str,
-    verbose: bool = False,
-) -> bool:
-    """Sakai /direct/session API で直接認証を試みる (CAS/Shibboleth をバイパス)。"""
-    if verbose:
-        print("      直接認証 (POST /direct/session) を試行...")
-    try:
-        resp = session.post(
-            f"{base_url}/direct/session",
-            data={"_username": username, "_password": password},
-            allow_redirects=False,
-            timeout=(10.0, 30.0),
-        )
-    except requests.RequestException as e:
-        if verbose:
-            print(f"      通信エラー: {e}")
-        return False
-
-    if resp.status_code != 200:
-        if verbose:
-            print(f"      応答 {resp.status_code}: 直接認証不可")
-        return False
-
-    try:
-        data = resp.json()
-    except ValueError:
-        return False
-
-    user_eid = data.get("userEid")
-    if not user_eid:
-        return False
-
-    if verbose:
-        print(f"      ユーザー {user_eid} として認証成功")
-
-    # ポータルページにアクセスして Sakai セッションを確立
-    session.get(f"{base_url}/portal", allow_redirects=True)
-    return True
+from tact_downloader import COOKIE_FILE
 
 
 def login(
-    username: str,
-    password: str,
-    seed: str,
     base_url: str,
     silent: bool = False,
     verbose: bool = False,
@@ -114,15 +14,10 @@ def login(
     """TACTにログインし、認証済みセッションを返す。
 
     以下の優先順位で認証を試みる:
-      1. Sakai /direct/session API (CAS/Shibboleth をバイパス)
-      2. CAS + Shibboleth + TOTP 多要素認証
-      3. 保存済み認証 Cookie の再利用
-      4. ブラウザを開いてユーザーにログインしてもらい Cookie を保存
+      1. 保存済み認証 Cookie の再利用
+      2. ブラウザを開いてユーザーにログインしてもらい Cookie を保存
 
     Args:
-        username: THERSアカウントのUPN
-        password: パスワード
-        seed: 多要素認証のTOTPシード値
         base_url: TACTのベースURL
         silent: Trueの場合、進行状況の出力を抑制する
         verbose: Trueの場合、デバッグ用の詳細情報を出力する
@@ -139,166 +34,11 @@ def login(
     if not silent:
         print("TACT にログインしています...")
 
-    # ---- Phase A: 直接認証 (bypass CAS/Shibboleth) ----
-    if _try_direct_session(session, base_url, username, password, verbose):
-        if not silent:
-            print("ログイン成功")
-        return session
-
-    # ---- Phase B: CAS + Shibboleth + TOTP 多要素認証 ----
-    if verbose:
-        print("      CAS/Shibboleth 認証にフォールバック...")
-
-    portal_login = f"{base_url}/portal/login"
-
-    if not silent:
-        print("[1/4] ポータルログインページに接続中...")
-    resp = session.get(portal_login, allow_redirects=True)
-    resp.raise_for_status()
-
-    cas_url = None
-    if resp.history:
-        if verbose:
-            print(f"      リダイレクト履歴:")
-            for i, r in enumerate(resp.history):
-                print(f"        [{i}] {r.status_code} → {r.url}")
-        for r in resp.history:
-            if "cas" in r.url.lower():
-                cas_url = r.url
-                break
-        if not cas_url:
-            for r in resp.history:
-                if "login" in r.url.lower() and "portal" not in r.url.lower():
-                    cas_url = r.url
-                    break
-    if not cas_url:
-        cas_url = extract_cas_url(resp.text, base_url)
-    if not cas_url:
-        domain = urlparse(base_url).netloc
-        parts = domain.split(".")
-        if len(parts) >= 3:
-            auth_domain = "auth-mfa." + ".".join(parts[-2:])
-        else:
-            auth_domain = "auth-mfa." + domain
-        cas_url = (
-            f"https://{auth_domain}/cas/login"
-            f"?service={base_url}%2Fsakai-login-tool%2Fcontainer"
-        )
-
-    if verbose:
-        print(f"      検出されたCAS URL: {cas_url}")
-
-    if not silent:
-        print(f"[2/4] CAS認証 ({cas_url[:60]}...)")
-    parser = FormParser()
-    parser.feed(resp.text)
-    payload = parser.params.copy()
-    payload.update({"username": username, "password": password})
-
-    if verbose:
-        print(f"      POST → {cas_url}")
-        sanitized = {k: ("***" if k in ("password", "token") else v) for k, v in payload.items()}
-        print(f"      パラメータ: {sanitized}")
-
-    resp = session.post(cas_url, data=payload, allow_redirects=False)
-    if verbose:
-        print(f"      応答: {resp.status_code}")
-        if resp.headers.get("Location"):
-            print(f"      Location: {resp.headers['Location'][:100]}")
-
-    if resp.status_code in (302, 303, 307, 308):
-        location = resp.headers.get("Location", "")
-        if verbose:
-            print(f"      リダイレクト先: {location[:80]}...")
-        resp = session.get(location, allow_redirects=False)
-    elif resp.status_code == 401:
-        pass
-    else:
-        resp.raise_for_status()
-
-    if not silent:
-        print("[3/4] 多要素認証トークンを生成・送信中...")
-
-    token_post_url = cas_url
-    if resp.status_code in (302, 303, 307, 308):
-        location = resp.headers.get("Location", "")
-        if location:
-            if verbose:
-                print(f"      リダイレクト: {location[:80]}...")
-            resp = session.get(location, allow_redirects=False)
-
-    parser = FormParser()
-    parser.feed(resp.text)
-
-    if parser.form_action:
-        token_post_url = urljoin(resp.url, parser.form_action)
-    elif resp.status_code in (200, 401):
-        cas_url2 = extract_cas_url(resp.text, base_url)
-        if cas_url2:
-            token_post_url = cas_url2
-
-    token_payload = parser.params.copy()
-    token_payload["token"] = get_totp_token(seed)
-
-    if verbose:
-        print(f"      POST先: {token_post_url}")
-        sanitized = {k: (v if k not in ("password", "token") else "***") for k, v in token_payload.items()}
-        print(f"      パラメータ: {sanitized}")
-
-    max_retries = 3
-    for attempt in range(max_retries):
-        if verbose:
-            print(f"      POST試行 {attempt + 1}/{max_retries} → {token_post_url}")
-        resp = session.post(
-            token_post_url,
-            data=token_payload,
-            allow_redirects=False,
-            timeout=(10.0, 30.0),
-        )
-        if verbose:
-            print(f"      応答: {resp.status_code}")
-            if resp.headers.get("Location"):
-                print(f"      Location: {resp.headers['Location'][:100]}")
-            print(f"      応答ボディ (先頭200文字): {resp.text[:200]}")
-
-        if resp.status_code in (302, 303, 307, 308):
-            location = resp.headers.get("Location", "")
-            if not silent or verbose:
-                print(f"      リダイレクト: {location[:80]}...")
-            resp = session.get(
-                location if location.startswith("http") else urljoin(base_url, location),
-                allow_redirects=True,
-            )
-            break
-        elif resp.status_code == 401:
-            if not silent or verbose:
-                print(f"      認証失敗 (試行 {attempt + 1}/{max_retries})、トークン再生成...")
-            token_payload["token"] = get_totp_token(seed)
-            continue
-        else:
-            resp.raise_for_status()
-    else:
-        raise RuntimeError(
-            "多要素認証に失敗しました。TOTPシード値を確認してください。\n"
-            "詳細を確認するには --verbose オプションを付けて再実行してください。"
-        )
-
-    if not silent:
-        print("[4/4] セッション確認中...")
-
-    check_resp = session.get(f"{base_url}/portal", allow_redirects=True)
-    logged_in = '"loggedIn": true' in check_resp.text
-
-    if logged_in:
-        if not silent:
-            print("ログイン成功")
-        return session
-
-    # ---- Phase C: 保存済み Cookie を試す ----
-    if not silent:
-        print("保存済み Cookie を確認中...")
+    # ---- Phase A: 保存済み Cookie を試す ----
     cookie_path = Path(COOKIE_FILE)
     if cookie_path.exists():
+        if not silent:
+            print("保存済み Cookie を確認中...")
         try:
             with open(cookie_path) as f:
                 saved_cookies = json.load(f)
@@ -319,14 +59,12 @@ def login(
             if verbose:
                 print(f"      Cookie読み込みエラー: {e}")
 
-    # ---- Phase D: ブラウザでログインしてもらい Cookie を保存 ----
+    # ---- Phase B: ブラウザでログインしてもらい Cookie を保存 ----
     print()
     print("=" * 60)
-    print("  TACT の認証基盤が変更されました。")
-    print("  初回のみブラウザでログインしてください。")
-    print()
-    print("  開いたブラウザで TACT にログインすると、")
-    print("  Cookie が自動保存され次回からは再利用されます。")
+    print("  TACT にログインしてください。")
+    print("  ブラウザが開くので、ログイン後は自動的に処理が続行されます。")
+    print("  Cookie は自動保存され、次回からは再利用されます。")
     print("=" * 60)
     print()
 
@@ -348,7 +86,6 @@ def login(
             page = context.new_page()
             page.goto(f"{base_url}/portal", wait_until="domcontentloaded", timeout=30000)
 
-            # ユーザーがログインするのを待つ (最大5分)
             import time
             for _ in range(300):
                 time.sleep(1)
@@ -373,7 +110,6 @@ def login(
 
             browser.close()
     except ImportError:
-        # Playwright が未インストールの場合
         print()
         print("  Playwright がインストールされていません。")
         print("  以下の手順で手動セットアップしてください:")

@@ -13,7 +13,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from tact_downloader import THERS_UPN, THERS_PASSWORD, TOTP_SEED, TACT_BASE_URL
+from tact_downloader import TACT_BASE_URL
 from tact_downloader.auth import login
 from tact_downloader.classifier import classify_site, SiteInfo
 from tact_downloader.client import TACTClient
@@ -28,16 +28,8 @@ from tact_downloader.downloader import (
 
 def check_config() -> None:
     """設定が正しいか検証する。"""
-    missing = []
-    if not THERS_UPN:
-        missing.append("THERS_UPN")
-    if not THERS_PASSWORD:
-        missing.append("THERS_PASSWORD")
-    if not TOTP_SEED:
-        missing.append("TOTP_SEED")
-    if missing:
-        print(f"エラー: .env ファイルに以下の設定が不足しています: {', '.join(missing)}")
-        print(".env.example を参考に .env を作成してください。")
+    if not TACT_BASE_URL:
+        print("エラー: TACT_BASE_URL が設定されていません。")
         sys.exit(1)
 
 
@@ -67,7 +59,7 @@ def main() -> None:
 
     # ログイン
     print("TACT にログインしています...")
-    session = login(THERS_UPN, THERS_PASSWORD, TOTP_SEED, TACT_BASE_URL, verbose=args.verbose)
+    session = login(TACT_BASE_URL, verbose=args.verbose)
     client = TACTClient(session)
 
     # サイト一覧取得
