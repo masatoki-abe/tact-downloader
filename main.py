@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import sys
-from pathlib import Path
 
 from tact_downloader import TACT_BASE_URL
 from tact_downloader.auth import login
@@ -21,8 +20,6 @@ from tact_downloader.downloader import (
     build_download_path,
     ensure_dir,
     safe_relative_path,
-    is_downloaded,
-    mark_downloaded,
 )
 
 
@@ -162,7 +159,7 @@ def main() -> None:
             rel = safe_relative_path(res["relative_path"])
             save_path = dl_dir / rel
 
-            if not args.force and is_downloaded(url):
+            if not args.force and save_path.exists():
                 print(f"    [スキップ] {rel}")
                 total_skipped += 1
                 continue
@@ -177,7 +174,6 @@ def main() -> None:
             try:
                 print(f"    [DL中]     {rel}", end="", flush=True)
                 client.download_resource(url, str(save_path))
-                mark_downloaded(url, str(save_path))
                 size_str = ""
                 if save_path.exists():
                     size = save_path.stat().st_size

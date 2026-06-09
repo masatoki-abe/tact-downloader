@@ -62,10 +62,11 @@ def extract_year(site_id: str, raw_title: str) -> str:
     """サイトIDまたはタイトルから年度を抽出する。"""
     title = _normalize_text(raw_title)
 
-    # タイトルから年度を抽出 (例: 2025年度, 2025春学期)
-    match = re.search(r"(\d{4})\s*年度?", title)
-    if match:
-        year = int(match.group(1))
+    # タイトルから年度を抽出（最後のマッチを優先: "（2022年度以降入学者）" のような
+    # 講義名内の年度表記を避け、末尾の "(YYYY年度学期/時限)" の年度を採用する）
+    matches = list(re.finditer(r"(\d{4})\s*年度?", title))
+    if matches:
+        year = int(matches[-1].group(1))
         return f"{year}年度"
 
     # タイトル内の西暦4桁を探す
