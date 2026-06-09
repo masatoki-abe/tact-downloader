@@ -17,6 +17,7 @@ SITE_TITLE_PATTERNS = os.environ.get(
     "春1期,春2期,秋1期,秋2期,春学期,秋学期,前期,後期,通年",
 )
 HISTORY_FILE = str(Path(VAULT_ROOT) / ".tact_history.json")
+COOKIE_FILE = str(Path.home() / ".tact_cookies.json")
 
 
 def parse_totp_seed(raw: str) -> str:

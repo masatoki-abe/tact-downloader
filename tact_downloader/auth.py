@@ -1,12 +1,14 @@
+import json
 import re
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import pyotp
 import requests
 
-from tact_downloader import parse_totp_seed
+from tact_downloader import parse_totp_seed, COOKIE_FILE
 
 
 class FormParser(HTMLParser):
@@ -57,6 +59,50 @@ def get_totp_token(seed: str) -> str:
     return totp.now()
 
 
+def _try_direct_session(
+    session: requests.Session,
+    base_url: str,
+    username: str,
+    password: str,
+    verbose: bool = False,
+) -> bool:
+    """Sakai /direct/session API で直接認証を試みる (CAS/Shibboleth をバイパス)。"""
+    if verbose:
+        print("      直接認証 (POST /direct/session) を試行...")
+    try:
+        resp = session.post(
+            f"{base_url}/direct/session",
+            data={"_username": username, "_password": password},
+            allow_redirects=False,
+            timeout=(10.0, 30.0),
+        )
+    except requests.RequestException as e:
+        if verbose:
+            print(f"      通信エラー: {e}")
+        return False
+
+    if resp.status_code != 200:
+        if verbose:
+            print(f"      応答 {resp.status_code}: 直接認証不可")
+        return False
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return False
+
+    user_eid = data.get("userEid")
+    if not user_eid:
+        return False
+
+    if verbose:
+        print(f"      ユーザー {user_eid} として認証成功")
+
+    # ポータルページにアクセスして Sakai セッションを確立
+    session.get(f"{base_url}/portal", allow_redirects=True)
+    return True
+
+
 def login(
     username: str,
     password: str,
@@ -65,7 +111,13 @@ def login(
     silent: bool = False,
     verbose: bool = False,
 ) -> requests.Session:
-    """TACTにCAS + 多要素認証でログインし、認証済みセッションを返す。
+    """TACTにログインし、認証済みセッションを返す。
+
+    以下の優先順位で認証を試みる:
+      1. Sakai /direct/session API (CAS/Shibboleth をバイパス)
+      2. CAS + Shibboleth + TOTP 多要素認証
+      3. 保存済み認証 Cookie の再利用
+      4. ブラウザを開いてユーザーにログインしてもらい Cookie を保存
 
     Args:
         username: THERSアカウントのUPN
@@ -84,22 +136,32 @@ def login(
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
+    if not silent:
+        print("TACT にログインしています...")
+
+    # ---- Phase A: 直接認証 (bypass CAS/Shibboleth) ----
+    if _try_direct_session(session, base_url, username, password, verbose):
+        if not silent:
+            print("ログイン成功")
+        return session
+
+    # ---- Phase B: CAS + Shibboleth + TOTP 多要素認証 ----
+    if verbose:
+        print("      CAS/Shibboleth 認証にフォールバック...")
+
     portal_login = f"{base_url}/portal/login"
 
-    # Step 1: ポータルログインページにアクセス
     if not silent:
         print("[1/4] ポータルログインページに接続中...")
     resp = session.get(portal_login, allow_redirects=True)
     resp.raise_for_status()
 
-    # リダイレクト先のURLをCAS URLとして使用
     cas_url = None
     if resp.history:
         if verbose:
             print(f"      リダイレクト履歴:")
             for i, r in enumerate(resp.history):
                 print(f"        [{i}] {r.status_code} → {r.url}")
-        # "cas" を含むURLを最優先、なければ "login" を含むURLで代用
         for r in resp.history:
             if "cas" in r.url.lower():
                 cas_url = r.url
@@ -112,7 +174,6 @@ def login(
     if not cas_url:
         cas_url = extract_cas_url(resp.text, base_url)
     if not cas_url:
-        # フォールバック: よく使われるパターン
         domain = urlparse(base_url).netloc
         parts = domain.split(".")
         if len(parts) >= 3:
@@ -127,7 +188,6 @@ def login(
     if verbose:
         print(f"      検出されたCAS URL: {cas_url}")
 
-    # Step 2: ユーザー名・パスワードをPOST
     if not silent:
         print(f"[2/4] CAS認証 ({cas_url[:60]}...)")
     parser = FormParser()
@@ -152,15 +212,13 @@ def login(
             print(f"      リダイレクト先: {location[:80]}...")
         resp = session.get(location, allow_redirects=False)
     elif resp.status_code == 401:
-        pass  # MFA入力画面
+        pass
     else:
         resp.raise_for_status()
 
-    # Step 3: MFAトークン画面を解析してトークンをPOST
     if not silent:
         print("[3/4] 多要素認証トークンを生成・送信中...")
 
-    # トークンPOST先を決定
     token_post_url = cas_url
     if resp.status_code in (302, 303, 307, 308):
         location = resp.headers.get("Location", "")
@@ -172,7 +230,6 @@ def login(
     parser = FormParser()
     parser.feed(resp.text)
 
-    # Form action属性を優先してPOST先URLを決定
     if parser.form_action:
         token_post_url = urljoin(resp.url, parser.form_action)
     elif resp.status_code in (200, 401):
@@ -188,7 +245,6 @@ def login(
         sanitized = {k: (v if k not in ("password", "token") else "***") for k, v in token_payload.items()}
         print(f"      パラメータ: {sanitized}")
 
-    # 数回リトライ（TOTPの時間ずれ対策）
     max_retries = 3
     for attempt in range(max_retries):
         if verbose:
@@ -227,17 +283,109 @@ def login(
             "詳細を確認するには --verbose オプションを付けて再実行してください。"
         )
 
-    # Step 4: セッション有効性確認
     if not silent:
         print("[4/4] セッション確認中...")
 
-    # portal にアクセスしてログイン状態を確認
     check_resp = session.get(f"{base_url}/portal", allow_redirects=True)
-    if "loggedIn" not in check_resp.text and "site" not in check_resp.text.lower():
+    logged_in = '"loggedIn": true' in check_resp.text
+
+    if logged_in:
+        if not silent:
+            print("ログイン成功")
+        return session
+
+    # ---- Phase C: 保存済み Cookie を試す ----
+    if not silent:
+        print("保存済み Cookie を確認中...")
+    cookie_path = Path(COOKIE_FILE)
+    if cookie_path.exists():
+        try:
+            with open(cookie_path) as f:
+                saved_cookies = json.load(f)
+            for c in saved_cookies:
+                session.cookies.set(
+                    c["name"], c["value"],
+                    domain=c.get("domain", ""),
+                    path=c.get("path", "/"),
+                )
+            test_resp = session.get(f"{base_url}/portal", allow_redirects=True)
+            if '"loggedIn": true' in test_resp.text:
+                if not silent:
+                    print("ログイン成功 (Cookie再利用)")
+                return session
+            if verbose:
+                print("      保存 Cookie は期限切れです")
+        except Exception as e:
+            if verbose:
+                print(f"      Cookie読み込みエラー: {e}")
+
+    # ---- Phase D: ブラウザでログインしてもらい Cookie を保存 ----
+    print()
+    print("=" * 60)
+    print("  TACT の認証基盤が変更されました。")
+    print("  初回のみブラウザでログインしてください。")
+    print()
+    print("  開いたブラウザで TACT にログインすると、")
+    print("  Cookie が自動保存され次回からは再利用されます。")
+    print("=" * 60)
+    print()
+
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=False,
+                args=["--start-maximized"],
+            )
+            context = browser.new_context(
+                no_viewport=True,
+                user_agent=(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+            )
+            page = context.new_page()
+            page.goto(f"{base_url}/portal", wait_until="domcontentloaded", timeout=30000)
+
+            # ユーザーがログインするのを待つ (最大5分)
+            import time
+            for _ in range(300):
+                time.sleep(1)
+                try:
+                    if '"loggedIn": true' in page.content():
+                        cookies = context.cookies()
+                        with open(cookie_path, "w") as f:
+                            json.dump(cookies, f, ensure_ascii=False, indent=2)
+                        if verbose:
+                            print(f"      Cookie {len(cookies)} 個を保存: {COOKIE_FILE}")
+                        for c in cookies:
+                            session.cookies.set(
+                                c["name"], c["value"],
+                                domain=c["domain"], path=c["path"],
+                            )
+                        if not silent:
+                            print("ログイン成功")
+                        browser.close()
+                        return session
+                except Exception:
+                    pass
+
+            browser.close()
+    except ImportError:
+        # Playwright が未インストールの場合
+        print()
+        print("  Playwright がインストールされていません。")
+        print("  以下の手順で手動セットアップしてください:")
+        print()
+        print(f"  1. ブラウザで {base_url}/portal にアクセスしてログイン")
+        print(f"  2. ブラウザ拡張機能で Cookie を JSON 形式でエクスポート")
+        print(f"  3. {COOKIE_FILE} に保存")
+        print(f"  4. このスクリプトを再実行")
+        print()
+    except Exception as e:
         raise RuntimeError(
-            "ログインに失敗しました。アカウント情報を確認してください。"
+            f"ブラウザログイン中にエラーが発生しました:\n  {e}\n"
         )
 
-    if not silent:
-        print("ログイン成功")
-    return session
+    raise RuntimeError("ログインに失敗しました。")
