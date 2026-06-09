@@ -11,7 +11,7 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 ```
 
-### 2. 認証情報の設定
+### 2. 環境設定
 
 `.env.example` を `.env` にコピーして編集。
 
@@ -21,12 +21,11 @@ cp .env.example .env
 
 | 変数             | 説明                                                        |
 | ---------------- | ----------------------------------------------------------- |
-| `THERS_UPN`      | THERSアカウントのUPN（例: `xxx@example.com`）               |
-| `THERS_PASSWORD` | THERSアカウントのパスワード                                 |
-| `TOTP_SEED`      | 多要素認証のTOTPシード値（Microsoft Authenticatorから取得） |
 | `TACT_BASE_URL`  | TACTのベースURL（既定値: `https://tact.ac.thers.ac.jp`）    |
 | `VAULT_ROOT`     | Obsidian vault のルートパス                                 |
 | `DOWNLOAD_BASE`  | vault内のダウンロード基点ディレクトリ（既定値: `大学`）     |
+
+認証はブラウザ経由で行います。初回実行時に Chromium が起動するので、TACT に手動でログインしてください。Cookie は自動保存され、次回以降は再利用されます。
 
 ### 3. ネットワーク確認
 
