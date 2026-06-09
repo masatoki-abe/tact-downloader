@@ -147,12 +147,13 @@ def main() -> None:
             print(f"  エラー: リソース一覧の取得に失敗しました - {e}")
             continue
 
+        dl_dir = ensure_dir(build_download_path(info))
+        print(f"  DL先  : {dl_dir}")
+
         if not resources:
             print("  リソースが見つかりませんでした。")
             continue
 
-        dl_dir = ensure_dir(build_download_path(info))
-        print(f"  DL先  : {dl_dir}")
         print(f"  ファイル数: {len(resources)}")
         print()
 
