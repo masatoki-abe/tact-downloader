@@ -40,22 +40,42 @@ class SiteInfo:
     course_name: str
 
 
+def _normalize_text(text: str) -> str:
+    """全角英数字を半角に変換する。"""
+    result = []
+    for c in text:
+        code = ord(c)
+        if 0xFF10 <= code <= 0xFF19:
+            result.append(chr(code - 0xFEE0))
+        elif 0xFF21 <= code <= 0xFF3A:
+            result.append(chr(code - 0xFEE0))
+        elif 0xFF41 <= code <= 0xFF5A:
+            result.append(chr(code - 0xFEE0))
+        elif code == 0x3000:
+            result.append(" ")
+        else:
+            result.append(c)
+    return "".join(result)
+
+
 def extract_year(site_id: str, raw_title: str) -> str:
     """サイトIDまたはタイトルから年度を抽出する。"""
-    # site_id の先頭4桁を年度として使用 (例: 2025_XXXXX)
-    match = re.match(r"(\d{4})_", site_id)
-    if match:
-        year = int(match.group(1))
-        return f"{year}年度"
+    title = _normalize_text(raw_title)
 
     # タイトルから年度を抽出 (例: 2025年度, 2025春学期)
-    match = re.search(r"(\d{4})\s*年度?", raw_title)
+    match = re.search(r"(\d{4})\s*年度?", title)
     if match:
         year = int(match.group(1))
         return f"{year}年度"
 
-    # 西暦4桁を探す
-    match = re.search(r"(20\d{2})", raw_title)
+    # タイトル内の西暦4桁を探す
+    match = re.search(r"(20\d{2})", title)
+    if match:
+        year = int(match.group(1))
+        return f"{year}年度"
+
+    # site_id に含まれる4桁の数字を年度として使用 (例: n_2024_XXXXX)
+    match = re.search(r"(\d{4})_", site_id)
     if match:
         year = int(match.group(1))
         return f"{year}年度"
@@ -65,47 +85,49 @@ def extract_year(site_id: str, raw_title: str) -> str:
 
 def extract_semester(raw_title: str) -> str:
     """タイトルから学期情報を抽出する。見つからない場合は空文字列。"""
-    # 【春1期】のような括弧で囲まれた学期表記を優先
-    bracket_match = re.search(r"[\[［【]([^\]］】]*期[^\]］】]*)[\]］】]", raw_title)
-    if bracket_match:
-        return bracket_match.group(1)
+    title = _normalize_text(raw_title)
 
-    bracket_match = re.search(r"[\[［【]([^\]］】]*学期[^\]］】]*)[\]］】]", raw_title)
-    if bracket_match:
-        return bracket_match.group(1)
+    # 【春1期】のようなタグ的括弧で囲まれた学期表記を優先
+    for open_b, close_b in [("【", "】"), ("［", "］"), ("[", "]")]:
+        for keyword in ("期", "学期", "[AB]", "ターム"):
+            pattern = rf"[{re.escape(open_b)}]([^{re.escape(close_b)}]*{keyword}[^{re.escape(close_b)}]*)"
+            bracket_match = re.search(pattern, title)
+            if bracket_match:
+                return bracket_match.group(1)
 
-    # 【春A】のようなターム/クォーター表記
-    bracket_match = re.search(r"[\[［【]([^\]］】]*[AB][^\]］】]*)[\]］】]", raw_title)
-    if bracket_match:
-        return bracket_match.group(1)
-
-    bracket_match = re.search(r"[\[［【]([^\]］】]*ターム[^\]］】]*)[\]］】]", raw_title)
-    if bracket_match:
-        return bracket_match.group(1)
-
-    # 括弧なしでマッチ
-    for pattern, label in SEMESTER_PATTERNS:
-        if re.search(pattern, raw_title):
-            return label
+    # 末尾の (...) または （...）で期 または / を含むものを学期ブロックと判定
+    block_match = re.search(r"[（(]([^）)]*(?:期|/)[^）)]*)[）)]\s*$", title)
+    if block_match:
+        block = block_match.group(1)
+        block = re.sub(r"\d{4}\s*年度?", "", block).strip()
+        for pattern, label in SEMESTER_PATTERNS:
+            if re.search(pattern, block):
+                return label
+        if "/" in block:
+            return block.split("/")[0].strip()
+        return block
 
     return ""
 
 
 def extract_course_name(raw_title: str, semester: str) -> str:
     """タイトルから学期表記と年度表記を除去して授業名を抽出する。"""
-    name = raw_title
+    name = _normalize_text(raw_title)
 
-    # 括弧で囲まれた学期表記を除去
-    name = re.sub(r"[\[［【][^\]］】]*(?:期|学期|ターム|[AB])[^\]］】]*[\]］】]\s*", "", name)
+    # 末尾の学期ブロック（期 または / を含む括弧）を除去
+    name = re.sub(r"[（(][^）)]*(?:期|/)[^）)]*[）)]\s*$", "", name)
 
-    # 年度表記を除去 (例: "2025", "2025年度", "2025年")
-    name = re.sub(r"\d{4}\s*(?:年度|年)?\s*[_\s\-]*", "", name)
+    # [遠隔] や 【l】 や （学部）のようなタグ的括弧を先頭から除去
+    name = re.sub(r"^[\[（(［【][^\]）)］】]*[\]）)］】]\s*", "", name)
 
-    # 残った学期・期・ターム・クォーター表記を除去
+    # 先頭の年度表記のみ除去 (例: "2025年度 情報学部4年" → "情報学部4年")
+    name = re.sub(r"^\d{4}\s*(?:年度|年)?\s*[_\s\-]*", "", name)
+
+    # 残った学期・期・ターム表記を除去（フォールバック）
     for pattern, _ in SEMESTER_PATTERNS:
         name = re.sub(pattern + r"\s*[_\s\-]*", "", name)
 
-    # 先頭と末尾の空白・記号を除去
+    # 残った孤立した括弧類を除去
     name = re.sub(r"^[\s_\-【\[［]+", "", name)
     name = re.sub(r"[\s_\-】\]］]+$", "", name)
     name = name.strip()
