@@ -1,0 +1,15 @@
+[Unit]
+Description=TACT resource auto downloader
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/masatoki/document/tact-downloader/venv/bin/python3 /home/masatoki/document/tact-downloader/main.py --all
+WorkingDirectory=/home/masatoki/document/tact-downloader
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tact-downloader
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+.tact_history.json
+venv/
