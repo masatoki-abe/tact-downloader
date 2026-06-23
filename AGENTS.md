@@ -23,6 +23,31 @@ cp .env.example .env   # 編集
 
 `.env` は `tact_downloader/__init__.py` がプロジェクトルートから自動読み込みする。認証情報を含むため `.gitignore` で除外済み。
 
+## Obsidian 連携
+
+Obsidian のファイルエクスプローラでフォルダを右クリック → 階層に応じた TACT ダウンロードを実行できる。
+
+```bash
+venv/bin/python scripts/setup-obsidian.py             # .env の VAULT_ROOT を使用
+venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
+```
+
+上記を実行すると以下が自動構成される:
+- Shell Commands プラグインのダウンロード・配置
+- フォルダ右クリックメニューに「TACT: 現在のフォルダをダウンロード」を追加
+- community-plugins.json への登録
+
+### 対応スコープ
+
+| 右クリックするフォルダ | ダウンロード対象 |
+|---|---|
+| `大学/` | 学期情報がある全サイト |
+| `大学/{年度}/` | その年度の全サイト |
+| `大学/{年度}/{学期}/` | その年度・学期の全サイト |
+| `大学/{年度}/{学期}/{授業名}/` | その授業のみ |
+
+`TACTリソース/` 以下のサブフォルダを右クリックしても、自動的に授業フォルダとして認識される。
+
 ## モジュール構成
 
 | モジュール                      | 役割                                                       |
@@ -44,3 +69,5 @@ cp .env.example .env   # 編集
 - systemd サービスファイルは `venv/bin/python3` およびプロジェクトルートへの絶対パスがハードコードされている。
 - 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。
 - 全 TACT API 呼び出しは `TACTClient._validate_url()` を通過し、許可ドメイン外の URL は拒否される。
+- Obsidian 連携は `scripts/setup-obsidian.py` が Shell Commands プラグインの全設定を自動生成する。端末ごとに手動設定は不要。
+- `obsidian_cmd.py` のパス解析は `大学/` からの相対パスを3階層まで見る。`TACTリソース/` は自動無視される。
