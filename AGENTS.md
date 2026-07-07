@@ -8,9 +8,12 @@
 venv/bin/python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--force]
 ```
 
-- `--list` — サイト一覧表示。`--all` — 全件ダウンロード。`--site` — 特定サイトのみ。省略時は対話的選択。
+- `--list` — サイト一覧表示。`--all` — 学期情報が検出されたサイトのみダウンロード（学期未検出のサイトはスキップ）。`--site` — 特定サイトのみ。省略時は対話的選択。
 - テスト実行: `venv/bin/python tests/test_classifier.py`（pytest 不使用。`__main__` として実行）
-- テストスナップショット更新: `venv/bin/python tests/generate_ans.py`
+- テストは `fixtures/titles_ans.json` が存在するとスナップショット比較モードになり、不一致で `exit(1)`。classifier 変更時は `generate_ans.py` で更新:
+  ```bash
+  venv/bin/python tests/generate_ans.py
+  ```
 
 ## セットアップ
 
@@ -50,14 +53,15 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 
 ## モジュール構成
 
-| モジュール                      | 役割                                                       |
-| ------------------------------- | ---------------------------------------------------------- |
-| `main.py`                       | エントリポイント。CLI 引数解析と全体制御                   |
-| `tact_downloader/__init__.py`   | 環境変数読み込み、定数定義                                 |
-| `tact_downloader/auth.py`       | ログイン処理（保存Cookie→自動ログイン→手動ログインの順） |
-| `tact_downloader/classifier.py` | 正規表現によるタイトル解析→年度/学期/授業名の抽出          |
-| `tact_downloader/client.py`     | Sakai `/direct/` REST API クライアント（ドメイン検証付き） |
-| `tact_downloader/downloader.py` | パス構築、ファイル名サニタイズ                             |
+| モジュール                        | 役割                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| `main.py`                         | エントリポイント。CLI 引数解析と全体制御                                     |
+| `tact_downloader/__init__.py`     | 環境変数読み込み、定数定義                                                   |
+| `tact_downloader/auth.py`         | ログイン処理（保存Cookie→自動ログイン→手動ログインの順）                     |
+| `tact_downloader/classifier.py`   | 正規表現によるタイトル解析→年度/学期/授業名の抽出                            |
+| `tact_downloader/client.py`       | Sakai `/direct/` REST API クライアント（ドメイン検証付き）                   |
+| `tact_downloader/downloader.py`   | パス構築、ファイル名サニタイズ                                               |
+| `tact_downloader/obsidian_cmd.py` | Obsidian Shell Commands 連携用。フォルダパスからスコープ判定してダウンロード |
 
 認証フロー: `~/.tact_cookies.json` の保存 Cookie を優先試行。期限切れ時は Playwright で Chromium を起動し、環境変数に認証情報があれば自動ログイン（メール→パスワード→TOTP→サインイン維持→機構同意を順に操作）、なければ手動ログインを待つ。
 
@@ -66,8 +70,7 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 - `pyproject.toml`、`setup.py`、リンター、フォーマッター、型チェッカーの設定はいずれも存在しない。
 - テストは `sys.path.insert(0, ...)` でパッケージを参照しており、正規インストールを必要としない。
 - README には `.tact_history.json` による重複回避の記載があるが、実際のスキップ判定は `main.py` の `if not args.force and save_path.exists()` であり、履歴ファイルは書き込まれない。
-- systemd サービスファイルは `venv/bin/python3` およびプロジェクトルートへの絶対パスがハードコードされている。
-- 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。
+- 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。`.env` の `SITE_TITLE_PATTERNS` は `__init__.py` で定義されるが、`classifier.py` はこれを参照しておらず、事実上未使用。
 - 全 TACT API 呼び出しは `TACTClient._validate_url()` を通過し、許可ドメイン外の URL は拒否される。
 - Obsidian 連携は `scripts/setup-obsidian.py` が Shell Commands プラグインの全設定を自動生成する。端末ごとに手動設定は不要。
 - `obsidian_cmd.py` のパス解析は `大学/` からの相対パスを3階層まで見る。`TACTリソース/` は自動無視される。
