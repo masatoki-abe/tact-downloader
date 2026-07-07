@@ -39,12 +39,12 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 
 ### 対応スコープ
 
-| 右クリックするフォルダ | ダウンロード対象 |
-|---|---|
-| `大学/` | 学期情報がある全サイト |
-| `大学/{年度}/` | その年度の全サイト |
-| `大学/{年度}/{学期}/` | その年度・学期の全サイト |
-| `大学/{年度}/{学期}/{授業名}/` | その授業のみ |
+| 右クリックするフォルダ         | ダウンロード対象         |
+| ------------------------------ | ------------------------ |
+| `大学/`                        | 学期情報がある全サイト   |
+| `大学/{年度}/`                 | その年度の全サイト       |
+| `大学/{年度}/{学期}/`          | その年度・学期の全サイト |
+| `大学/{年度}/{学期}/{授業名}/` | その授業のみ             |
 
 `TACTリソース/` 以下のサブフォルダを右クリックしても、自動的に授業フォルダとして認識される。
 
@@ -54,12 +54,12 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 | ------------------------------- | ---------------------------------------------------------- |
 | `main.py`                       | エントリポイント。CLI 引数解析と全体制御                   |
 | `tact_downloader/__init__.py`   | 環境変数読み込み、定数定義                                 |
-| `tact_downloader/auth.py`       | ログイン処理（保存 Cookie → Playwright ブラウザの順）      |
+| `tact_downloader/auth.py`       | ログイン処理（保存Cookie→自動ログイン→手動ログインの順） |
 | `tact_downloader/classifier.py` | 正規表現によるタイトル解析→年度/学期/授業名の抽出          |
 | `tact_downloader/client.py`     | Sakai `/direct/` REST API クライアント（ドメイン検証付き） |
 | `tact_downloader/downloader.py` | パス構築、ファイル名サニタイズ                             |
 
-認証フロー: `~/.tact_cookies.json` の保存 Cookie を優先試行。期限切れ時は Playwright で Chromium を起動し手動ログイン、新しい Cookie を保存する。
+認証フロー: `~/.tact_cookies.json` の保存 Cookie を優先試行。期限切れ時は Playwright で Chromium を起動し、環境変数に認証情報があれば自動ログイン（メール→パスワード→TOTP→サインイン維持→機構同意を順に操作）、なければ手動ログインを待つ。
 
 ## 非自明な点
 
@@ -71,3 +71,4 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 - 全 TACT API 呼び出しは `TACTClient._validate_url()` を通過し、許可ドメイン外の URL は拒否される。
 - Obsidian 連携は `scripts/setup-obsidian.py` が Shell Commands プラグインの全設定を自動生成する。端末ごとに手動設定は不要。
 - `obsidian_cmd.py` のパス解析は `大学/` からの相対パスを3階層まで見る。`TACTリソース/` は自動無視される。
+- 自動ログイン用の TOTP secret は `otpauth://...?secret=XXXX` の URL から抽出する。`auth.py` の `_ms_totp()` が `pyotp` でコード生成・入力を行う。

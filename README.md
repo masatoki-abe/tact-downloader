@@ -19,13 +19,16 @@ venv/bin/pip install -r requirements.txt
 cp .env.example .env
 ```
 
-| 変数             | 説明                                                        |
-| ---------------- | ----------------------------------------------------------- |
-| `TACT_BASE_URL`  | TACTのベースURL（既定値: `https://tact.ac.thers.ac.jp`）    |
-| `VAULT_ROOT`     | Obsidian vault のルートパス                                 |
-| `DOWNLOAD_BASE`  | vault内のダウンロード基点ディレクトリ（既定値: `大学`）     |
+| 変数                | 説明                                                     |
+| ------------------- | -------------------------------------------------------- |
+| `TACT_BASE_URL`     | TACTのベースURL（既定値: `https://tact.ac.thers.ac.jp`） |
+| `VAULT_ROOT`        | Obsidian vault のルートパス                              |
+| `DOWNLOAD_BASE`     | vault内のダウンロード基点ディレクトリ（既定値: `大学`）  |
+| `THERS_EMAIL`       | 自動ログイン用のTHERSアカウントUPN（省略時は手動）       |
+| `THERS_PASSWORD`    | THERSアカウントのパスワード                              |
+| `THERS_TOTP_SECRET` | TOTPシークレット（pyotpでコード自動生成。省略時は手動）  |
 
-認証はブラウザ経由で行います。初回実行時に Chromium が起動するので、TACT に手動でログインしてください。Cookie は自動保存され、次回以降は再利用されます。
+認証は Chromium ブラウザ経由で行います。`THERS_EMAIL` / `THERS_PASSWORD` / `THERS_TOTP_SECRET` を `.env` に設定すると、メール・パスワード・TOTP・サインイン維持・機構同意画面まで自動で操作し、ログインを完結します。設定しない場合は従来通りブラウザが開くので手動でログインしてください。Cookie は自動保存され、次回以降は再利用されます。
 
 ### 3. ネットワーク確認
 
@@ -70,31 +73,6 @@ vault内の `大学/{年度}/{学期n期}/{授業名}/TACTリソース/` に保�
 │           └── TACTリソース/
 │               └── ...
 ```
-
-## 自動実行 (systemd timer)
-
-```bash
-# ユーザー service としてインストール
-mkdir -p ~/.config/systemd/user
-cp tact-downloader.service ~/.config/systemd/user/
-cp tact-downloader.timer ~/.config/systemd/user/
-
-# タイマー有効化
-systemctl --user daemon-reload
-systemctl --user enable --now tact-downloader.timer
-
-# 状態確認
-systemctl --user status tact-downloader.timer
-
-# ログ確認
-journalctl --user -u tact-downloader.service -f
-```
-
-既定では毎日 06:00 に実行（ランダム遅延最大10分）。TACTメンテナンス時間帯（03:00-06:00）の直後に設定。
-
-## LiveSync 設定
-
-LiveSyncで `.env` を同期対象から除外するには、Obsidianの `LiveSync` プラグイン設定で「除外ファイル」に `.env` を追加。
 
 ## 差分管理
 

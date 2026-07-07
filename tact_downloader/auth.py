@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from pathlib import Path
 
 import requests
@@ -15,7 +17,8 @@ def login(
 
     以下の優先順位で認証を試みる:
       1. 保存済み認証 Cookie の再利用
-      2. ブラウザを開いてユーザーにログインしてもらい Cookie を保存
+      2. ブラウザを開いて自動ログイン（環境変数 THERS_EMAIL 等があれば自動入力）
+      3. ブラウザを開いてユーザーに手動ログインしてもらう
 
     Args:
         base_url: TACTのベースURL
@@ -59,14 +62,28 @@ def login(
             if verbose:
                 print(f"      Cookie読み込みエラー: {e}")
 
-    # ---- Phase B: ブラウザでログインしてもらい Cookie を保存 ----
-    print()
-    print("=" * 60)
-    print("  TACT にログインしてください。")
-    print("  ブラウザが開くので、ログイン後は自動的に処理が続行されます。")
-    print("  Cookie は自動保存され、次回からは再利用されます。")
-    print("=" * 60)
-    print()
+    # ---- Phase B: ブラウザでログイン ----
+    email = os.environ.get("THERS_EMAIL")
+    password = os.environ.get("THERS_PASSWORD")
+    totp_secret = os.environ.get("THERS_TOTP_SECRET")
+    auto_mode = bool(email and password)
+
+    if auto_mode:
+        print()
+        print("=" * 60)
+        print("  TACT に自動ログインします...")
+        if not totp_secret:
+            print("  TOTPコードの手動入力を待機します。")
+        print("=" * 60)
+        print()
+    else:
+        print()
+        print("=" * 60)
+        print("  TACT にログインしてください。")
+        print("  ブラウザが開くので、ログイン後は自動的に処理が続行されます。")
+        print("  Cookie は自動保存され、次回からは再利用されます。")
+        print("=" * 60)
+        print()
 
     try:
         from playwright.sync_api import sync_playwright
@@ -74,7 +91,10 @@ def login(
         with sync_playwright() as p:
             browser = p.chromium.launch(
                 headless=False,
-                args=["--start-maximized"],
+                args=[
+                    "--start-maximized",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
             context = browser.new_context(
                 no_viewport=True,
@@ -86,7 +106,14 @@ def login(
             page = context.new_page()
             page.goto(f"{base_url}/portal", wait_until="domcontentloaded", timeout=30000)
 
-            import time
+            if auto_mode:
+                try:
+                    _auto_fill_login(page, email, password, totp_secret, silent)
+                except Exception as e:
+                    if not silent:
+                        print(f"  自動入力中にエラーが発生しました: {e}")
+                        print("  手動でログインを続行してください。")
+
             for _ in range(300):
                 time.sleep(1)
                 try:
@@ -125,3 +152,109 @@ def login(
         )
 
     raise RuntimeError("ログインに失敗しました。")
+
+
+def _auto_fill_login(page, email, password, totp_secret, silent):
+    """全ログインフローを順に実行。
+
+    画面遷移:
+      TACTポータル → MSメール → MSパスワード → MSTOTP
+      → MSサインイン維持 → 機構同意 → TACTポータル(完了)
+    """
+    page.wait_for_load_state("domcontentloaded")
+
+    _tact_portal_login(page)          # 1. TACTポータル → MS SSO
+    _ms_email(page, email)            # 2. MS メールアドレス入力
+    _ms_password(page, password)      # 3. MS パスワード入力
+    if totp_secret:
+        _ms_totp(page, totp_secret)   # 4. MS TOTP認証
+    elif not silent:
+        print("  認証アプリのコードを手動で入力してください...")
+    _ms_stay_signed_in(page)          # 5. MS サインイン維持（いいえ）
+    _thers_consent(page)              # 6. 機構同意画面（同意）
+
+
+# ============================================================
+#  1: TACT ポータル → Microsoft SSO リダイレクト
+# ============================================================
+
+def _tact_portal_login(page):
+    """【1: TACTポータル】「Federation Login」リンクをクリック。"""
+    with page.expect_navigation(timeout=30000):
+        page.locator("a#loginLink1").first.click(timeout=5000)
+
+
+# ============================================================
+#  2: Microsoft メールアドレス入力
+# ============================================================
+
+def _ms_email(page, email):
+    """【2: MS メールアドレス入力画面】"""
+    page.locator('input[type="email"]').first.wait_for(timeout=30000)
+    page.locator('input[type="email"]').first.fill(email)
+    page.locator("#idSIButton9").first.wait_for(timeout=15000)
+    page.locator("#idSIButton9").first.click()
+    page.locator('input[type="password"]').first.wait_for(timeout=15000)
+
+
+# ============================================================
+#  3: Microsoft パスワード入力
+# ============================================================
+
+def _ms_password(page, password):
+    """【3: MS パスワード入力画面】"""
+    page.locator('input[type="password"]').first.wait_for(timeout=30000)
+    page.locator('input[type="password"]').first.fill(password)
+    page.locator("#idSIButton9").first.wait_for(timeout=15000)
+    page.locator("#idSIButton9").first.click()
+
+
+# ============================================================
+#  4: Microsoft TOTP 認証
+# ============================================================
+
+def _ms_totp(page, totp_secret):
+    """【4: MS TOTP認証画面】コード自動生成→Enter。
+
+    プッシュ通知画面の場合は「別の方法」→ TOTP選択 を辿る。
+    """
+    import pyotp
+
+    totp_input = page.locator('input#idTxtBx_SAOTCC_OTC, input[type="tel"]')
+    try:
+        totp_input.first.wait_for(timeout=5000)
+    except Exception:
+        try:
+            page.locator("a#signInAnotherWay").first.click(timeout=5000)
+            page.locator('div[data-value="PhoneAppOTP"]').first.wait_for(timeout=5000)
+            page.locator('div[data-value="PhoneAppOTP"]').first.click(timeout=5000)
+        except Exception:
+            pass
+        totp_input.first.wait_for(timeout=15000)
+
+    code = pyotp.TOTP(totp_secret).now()
+    totp_input.first.fill(code)
+    page.keyboard.press("Enter")
+
+
+# ============================================================
+#  5: Microsoft サインイン維持画面
+# ============================================================
+
+def _ms_stay_signed_in(page):
+    """【5: MS サインイン維持画面】→ いいえ"""
+    try:
+        page.locator("#KmsiCheckboxField").first.wait_for(timeout=10000)
+        page.locator("#idBtn_Back").first.click(timeout=5000)
+    except Exception:
+        pass
+
+
+# ============================================================
+#  6: 機構同意画面
+# ============================================================
+
+def _thers_consent(page):
+    """【6: 機構同意画面】→ 同意"""
+    page.locator('input[value="同意"]').first.wait_for(timeout=60000)
+    page.locator('input[value="同意"]').first.click(timeout=5000)
