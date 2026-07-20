@@ -14,12 +14,14 @@ class DownloadResult:
     succeeded: int = 0
     skipped: int = 0
     failed: int = 0
+    planned: int = 0
 
     def __add__(self, other: "DownloadResult") -> "DownloadResult":
         return DownloadResult(
             self.succeeded + other.succeeded,
             self.skipped + other.skipped,
             self.failed + other.failed,
+            self.planned + other.planned,
         )
 
 
@@ -89,7 +91,7 @@ def download_sites(
             if dry_run:
                 if on_resource:
                     on_resource("dry_run", rel, None)
-                result.succeeded += 1
+                result.planned += 1
                 continue
 
             save_path.parent.mkdir(parents=True, exist_ok=True)

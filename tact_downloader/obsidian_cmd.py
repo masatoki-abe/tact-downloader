@@ -17,6 +17,7 @@ from tact_downloader import DOWNLOAD_BASE, TACT_BASE_URL, VAULT_ROOT
 from tact_downloader.auth import login
 from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
+
 # Re-exported for callers that previously patched this module-level helper.
 from tact_downloader.downloader import build_download_path, download_sites  # noqa: F401
 from tact_downloader.exceptions import TACTError
@@ -86,7 +87,9 @@ def main() -> int:
     )
     parser.add_argument("--path", required=True, help="対象フォルダの絶対パス")
     parser.add_argument(
-        "--dry-run", action="store_true", help="ダウンロードせず表示のみ"
+        "--dry-run",
+        action="store_true",
+        help="ダウンロード予定を表示（vault内は変更しない）",
     )
     parser.add_argument("--force", action="store_true", help="既存ファイルを上書き")
     args = parser.parse_args()
@@ -149,7 +152,7 @@ def main() -> int:
         elif status == "skipped":
             print(f"  [スキップ] {rel}")
         elif status == "dry_run":
-            print(f"  [DL対象] {rel}")
+            print(f"  [予定] {rel}")
         elif status == "succeeded":
             print(f"  [DL中] {rel} ... 完了 ({detail})")
         else:
@@ -170,9 +173,13 @@ def main() -> int:
         return 1
 
     print()
-    print(
-        f"結果: {result.succeeded} 件成功 / {result.skipped} 件スキップ / {result.failed} 件失敗"
+    summary = (
+        f"結果: {result.succeeded} 件成功 / {result.skipped} 件スキップ / "
+        f"{result.failed} 件失敗"
     )
+    if args.dry_run:
+        summary += f" / {result.planned} 件ダウンロード予定"
+    print(summary)
     return 1 if result.failed else 0
 
 

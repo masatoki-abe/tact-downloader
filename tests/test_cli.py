@@ -47,7 +47,7 @@ def test_all_skips_sites_without_semester():
     client.get_site_resources.assert_called_once_with("with")
 
 
-def test_dry_run_does_not_create_directory(tmp_path):
+def test_dry_run_does_not_create_directory(tmp_path, capsys):
     client = fake_client([{"entityId": "site", "entityTitle": "2025年度 A (春学期)"}])
     client.get_site_resources.return_value = [
         {
@@ -71,6 +71,7 @@ def test_dry_run_does_not_create_directory(tmp_path):
 
     assert not (tmp_path / "TACTリソース").exists()
     client.download_resource.assert_not_called()
+    assert "1 件ダウンロード予定" in capsys.readouterr().out
 
 
 def test_partial_download_failure_returns_nonzero_and_reports_failure(tmp_path, capsys):

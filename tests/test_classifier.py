@@ -6,7 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tact_downloader.classifier import classify_site  # noqa: E402
+from tact_downloader.classifier import (  # noqa: E402
+    classify_site,
+    extract_semester,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "titles.json"
 FIXTURE_ANS = Path(__file__).parent / "fixtures" / "titles_ans.json"
@@ -58,6 +61,32 @@ def test_classifier_snapshot():
     ]
     assert [item["title"] for item in entries] == [item["title"] for item in expected]
     assert results == expected
+
+
+def test_supported_semester_formats():
+    cases = [
+        ("授業 (2025年度春3期/月2)", "春3期"),
+        ("授業（2025年度秋学期/その他）", "秋学期"),
+        ("授業 (2025年度通年)", "通年"),
+        ("授業 (第1ターム)", "第1ターム"),
+        ("授業 (春A)", "春A"),
+        ("授業 (集中)", "集中"),
+        ("授業【後期】", "後期"),
+        ("授業［春B］", "春B"),
+        ("授業[秋2期]", "秋2期"),
+        ("授業 (2025年度未知の期/月2)", ""),
+    ]
+
+    for title, expected in cases:
+        assert extract_semester(title) == expected
+
+
+def test_course_name_removes_only_recognized_semester_block():
+    assert classify_site("site", "2025年度 集中講義 (春A)").course_name == "集中講義"
+    assert (
+        classify_site("site", "2025年度 データ分析 (未知の期)").course_name
+        == "データ分析 (未知の期)"
+    )
 
 
 if __name__ == "__main__":

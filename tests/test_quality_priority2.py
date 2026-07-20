@@ -117,7 +117,7 @@ def test_dry_run_does_not_create_directories_in_obsidian(tmp_path):
         patch.object(downloader, "VAULT_ROOT", str(tmp_path)),
         patch.object(downloader, "DOWNLOAD_BASE", "大学"),
     ):
-        assert obsidian_cmd.download_resources(client, info, dry_run=True) == (1, 0, 0)
+        assert obsidian_cmd.download_resources(client, info, dry_run=True) == (0, 0, 0)
 
     assert list(tmp_path.iterdir()) == []
     client.download_resource.assert_not_called()

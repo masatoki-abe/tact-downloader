@@ -88,31 +88,29 @@ def extract_semester(raw_title: str) -> str:
     """タイトルから学期情報を抽出する。見つからない場合は空文字列。"""
     title = _normalize_text(raw_title)
 
-    # 【春1期】のようなタグ的括弧で囲まれた学期表記を優先
+    # 【春1期】のようなタグ的括弧で囲まれた学期表記を優先する。
     for open_b, close_b in [("【", "】"), ("［", "］"), ("[", "]")]:
-        for keyword in ("期", "学期", "[AB]", "ターム"):
-            pattern = rf"[{re.escape(open_b)}]([^{re.escape(close_b)}]*{keyword}[^{re.escape(close_b)}]*)"
-            bracket_match = re.search(pattern, title)
-            if bracket_match:
-                return bracket_match.group(1)
+        pattern = rf"{re.escape(open_b)}([^{re.escape(close_b)}]*){re.escape(close_b)}"
+        for bracket_match in re.finditer(pattern, title):
+            label = _match_semester(bracket_match.group(1))
+            if label:
+                return label
 
-    # 末尾の (...) または （...）で期 または / を含むものを学期ブロックと判定
-    block_match = re.search(r"[（(]([^）)]*(?:期|/)[^）)]*)[）)]\s*$", title)
+    # 末尾の括弧ブロックから、既知の学期パターンだけを採用する。
+    block_match = re.search(r"[（(]([^）)]*)[）)]\s*$", title)
     if block_match:
         block = block_match.group(1)
         block = re.sub(r"\d{4}\s*年度?", "", block).strip()
-        for pattern, label in SEMESTER_PATTERNS:
-            if re.search(pattern, block):
-                return label
-        # 未確定のような疑似学期ラベルは空文字列として扱う
-        if "/" in block:
-            candidate = block.split("/")[0].strip()
-            for pattern, label in SEMESTER_PATTERNS:
-                if re.search(pattern, candidate):
-                    return label
-            return ""
-        return ""
+        return _match_semester(block) or ""
 
+    return ""
+
+
+def _match_semester(text: str) -> str:
+    """文字列中の既知の学期パターンを正規化して返す。"""
+    for pattern, label in SEMESTER_PATTERNS:
+        if re.search(pattern, text):
+            return label
     return ""
 
 
@@ -120,18 +118,18 @@ def extract_course_name(raw_title: str, semester: str) -> str:
     """タイトルから学期表記と年度表記を除去して授業名を抽出する。"""
     name = _normalize_text(raw_title)
 
-    # 末尾の学期ブロック（期 または / を含む括弧）を除去
-    name = re.sub(r"[（(][^）)]*(?:期|/)[^）)]*[）)]\s*$", "", name)
+    # 実際に認識した末尾の学期ブロックだけを除去する。
+    if semester:
+        name = re.sub(r"[（(][^）)]*[）)]\s*$", "", name)
+    else:
+        # 未確定の年度・時限ブロックは学期未検出でもメタデータとして除去する。
+        name = re.sub(r"[（(][^）)]*/[^）)]*[）)]\s*$", "", name)
 
     # [遠隔] や 【l】 や （学部）のようなタグ的括弧を先頭から除去
     name = re.sub(r"^[\[（(［【][^\]）)］】]*[\]）)］】]\s*", "", name)
 
     # 先頭の年度表記のみ除去 (例: "2025年度 情報学部4年" → "情報学部4年")
     name = re.sub(r"^\d{4}\s*(?:年度|年)?\s*[_\s\-]*", "", name)
-
-    # 残った学期・期・ターム表記を除去（フォールバック）
-    for pattern, _ in SEMESTER_PATTERNS:
-        name = re.sub(pattern + r"\s*[_\s\-]*", "", name)
 
     # 残った孤立した括弧類を除去
     name = re.sub(r"^[\s_\-【\[［]+", "", name)

@@ -78,7 +78,7 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 - `pyproject.toml` にpytest、coverage、Ruffの設定がある。`setup.py`と型チェッカーの設定は存在しない。
 - テストは `sys.path.insert(0, ...)` でパッケージを参照しており、正規インストールを必要としない。
 - README には `.tact_history.json` による重複回避の記載があるが、実際のスキップ判定は `main.py` の `if not args.force and save_path.exists()` であり、履歴ファイルは書き込まれない。
-- 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。`.env` の `SITE_TITLE_PATTERNS` は `__init__.py` で定義されるが、`classifier.py` はこれを参照しておらず、事実上未使用。
+- 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。学期設定を環境変数では変更しない。
 - 全 TACT API 呼び出しは `TACTClient._validate_url()` を通過し、許可ドメイン外の URL は拒否される。
 - Obsidian 連携は `scripts/setup-obsidian.py` が Shell Commands プラグインの全設定を自動生成する。端末ごとに手動設定は不要。
 - `obsidian_cmd.py` のパス解析は `大学/` からの相対パスを3階層まで見る。`TACTリソース/` は自動無視される。

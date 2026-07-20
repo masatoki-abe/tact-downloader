@@ -4,9 +4,9 @@
 Usage:
     python main.py                 対話的にサイト選択してダウンロード
     python main.py --list          講義サイト一覧を表示
-    python main.py --all           全サイト一括ダウンロード
+    python main.py --all           学期を検出できた全サイトをダウンロード
     python main.py --site SITE_ID  指定サイトのみダウンロード
-    python main.py --dry-run       ダウンロードせずに内容のみ表示
+    python main.py --dry-run       ダウンロード予定を表示（vault内は変更しない）
 """
 
 import argparse
@@ -36,10 +36,14 @@ def main() -> int:
         "--verbose", "-v", action="store_true", help="デバッグ用の詳細情報を表示"
     )
     parser.add_argument("--list", action="store_true", help="講義サイト一覧を表示")
-    parser.add_argument("--all", action="store_true", help="全サイト一括ダウンロード")
+    parser.add_argument(
+        "--all", action="store_true", help="学期を検出できた全サイトをダウンロード"
+    )
     parser.add_argument("--site", type=str, help="指定したサイトIDのみダウンロード")
     parser.add_argument(
-        "--dry-run", action="store_true", help="ダウンロードせず内容表示のみ"
+        "--dry-run",
+        action="store_true",
+        help="ダウンロード予定を表示（vault内は変更しない）",
     )
     parser.add_argument(
         "--force", action="store_true", help="ダウンロード済みでも再ダウンロード"
@@ -158,7 +162,7 @@ def main() -> int:
         elif status == "skipped":
             print(f"    [スキップ] {rel}")
         elif status == "dry_run":
-            print(f"    [dry-run] {rel}")
+            print(f"    [予定]     {rel}")
         elif status == "succeeded":
             print(f"    [完了]     {rel} ({detail})")
         else:
@@ -180,9 +184,13 @@ def main() -> int:
         return 1
 
     print(f"\n{'=' * 60}")
-    print(
-        f"  結果: {result.succeeded} 件成功, {result.skipped} 件スキップ, {result.failed} 件失敗"
+    summary = (
+        f"  結果: {result.succeeded} 件成功, {result.skipped} 件スキップ, "
+        f"{result.failed} 件失敗"
     )
+    if args.dry_run:
+        summary += f", {result.planned} 件ダウンロード予定"
+    print(summary)
     print(f"{'=' * 60}")
     return 1 if result.failed else 0
 
