@@ -20,6 +20,9 @@ from tact_downloader.downloader import (
     build_download_path,
     ensure_dir,
     safe_relative_path,
+    safe_resource_path,
+    validate_site_paths,
+    validate_resource_paths,
 )
 
 
@@ -128,6 +131,12 @@ def main() -> None:
             except ValueError:
                 print("番号を数値で入力してください（例: 1,3,5）。")
 
+    try:
+        validate_site_paths(targets)
+    except ValueError as e:
+        print(f"エラー: サイトの保存先パスが不正です - {e}")
+        sys.exit(1)
+
     # ダウンロード実行
     total_new = 0
     total_skipped = 0
@@ -151,13 +160,19 @@ def main() -> None:
             print("  リソースが見つかりませんでした。")
             continue
 
+        try:
+            validate_resource_paths(dl_dir, resources)
+        except ValueError as e:
+            print(f"  エラー: 保存先パスが不正です - {e}")
+            continue
+
         print(f"  ファイル数: {len(resources)}")
         print()
 
         for res in resources:
             url = res["url"]
             rel = safe_relative_path(res["relative_path"])
-            save_path = dl_dir / rel
+            save_path = safe_resource_path(dl_dir, res["relative_path"])
 
             if not args.force and save_path.exists():
                 print(f"    [スキップ] {rel}")
@@ -173,7 +188,7 @@ def main() -> None:
 
             try:
                 print(f"    [DL中]     {rel}", end="", flush=True)
-                client.download_resource(url, str(save_path))
+                client.download_resource(url, str(save_path), expected_size=res.get("size"))
                 size_str = ""
                 if save_path.exists():
                     size = save_path.stat().st_size

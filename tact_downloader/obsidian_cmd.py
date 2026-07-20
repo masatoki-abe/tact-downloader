@@ -17,7 +17,13 @@ from tact_downloader import TACT_BASE_URL, VAULT_ROOT, DOWNLOAD_BASE
 from tact_downloader.auth import login
 from tact_downloader.classifier import classify_site, SiteInfo
 from tact_downloader.client import TACTClient
-from tact_downloader.downloader import build_download_path, ensure_dir, safe_relative_path
+from tact_downloader.downloader import (
+    build_download_path,
+    ensure_dir,
+    safe_resource_path,
+    validate_site_paths,
+    validate_resource_paths,
+)
 
 
 def parse_scope(folder_path: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -88,10 +94,16 @@ def download_resources(
         print(f"  リソースなし")
         return (0, 0)
 
+    try:
+        validate_resource_paths(dl_dir, resources)
+    except ValueError as e:
+        print(f"  エラー: 保存先パスが不正です - {e}")
+        return (0, 0)
+
     for res in resources:
         url = res["url"]
-        rel = safe_relative_path(res["relative_path"])
-        save_path = dl_dir / rel
+        rel = res["relative_path"]
+        save_path = safe_resource_path(dl_dir, rel)
 
         if not force and save_path.exists():
             skipped_count += 1
@@ -105,7 +117,7 @@ def download_resources(
         save_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             print(f"  [DL中] {rel} ...", end="", flush=True)
-            client.download_resource(url, str(save_path))
+            client.download_resource(url, str(save_path), expected_size=res.get("size"))
             size_str = ""
             if save_path.exists():
                 size = save_path.stat().st_size
@@ -164,6 +176,12 @@ def main() -> None:
 
     if not targets:
         print("該当する講義サイトが見つかりませんでした。")
+        return
+
+    try:
+        validate_site_paths(targets)
+    except ValueError as e:
+        print(f"エラー: サイトの保存先パスが不正です - {e}")
         return
 
     print(f"対象: {len(targets)} サイト")

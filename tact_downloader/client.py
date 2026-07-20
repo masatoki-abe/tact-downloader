@@ -1,6 +1,8 @@
 import json
+import os
 import re
-from urllib.parse import urljoin, urlparse, unquote
+import tempfile
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import requests
 
@@ -13,13 +15,34 @@ class TACTClient:
     def __init__(self, session: requests.Session, base_url: str = TACT_BASE_URL):
         self.session = session
         self.base_url = base_url.rstrip("/")
-        self.domain = urlparse(self.base_url).netloc
+        parsed = urlparse(self.base_url)
+        if parsed.scheme != "https" or parsed.username or parsed.password:
+            raise ValueError("TACT_BASE_URLは認証情報を含まないHTTPS URLにしてください。")
+        self.domain = parsed.hostname.lower() if parsed.hostname else ""
+        try:
+            self.port = parsed.port or 443
+        except ValueError as exc:
+            raise ValueError("TACT_BASE_URLのポートが不正です。") from exc
+        if not self.domain:
+            raise ValueError("TACT_BASE_URLにホスト名がありません。")
 
     def _validate_url(self, url: str) -> None:
         parsed = urlparse(url)
-        if parsed.netloc != self.domain:
+        try:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError as exc:
+            raise ValueError(f"URL {url} のポートが不正です。") from exc
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname is None
+            or parsed.hostname.lower() != self.domain
+            or port != self.port
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+        ):
             raise ValueError(
-                f"URL {url} のドメインが {self.domain} と一致しません。"
+                f"URL {url} は許可されたHTTPSホストではありません。"
             )
 
     def _get(self, url: str, **kwargs) -> requests.Response:
@@ -27,7 +50,20 @@ class TACTClient:
         セッション切れの場合は再認証を試みる。
         """
         self._validate_url(url)
-        resp = self.session.get(url, **kwargs)
+        current_url = url
+        for _ in range(5):
+            self._validate_url(current_url)
+            resp = self.session.get(current_url, allow_redirects=False, **kwargs)
+            if resp.is_redirect or resp.is_permanent_redirect:
+                location = resp.headers.get("Location")
+                resp.close()
+                if not location:
+                    raise RuntimeError("リダイレクト先が指定されていません。")
+                current_url = urljoin(current_url, location)
+                continue
+            break
+        else:
+            raise RuntimeError("リダイレクト回数が上限を超えました。")
         if resp.status_code == 401:
             raise RuntimeError(
                 "セッションが切れました。login() を再実行してください。"
@@ -44,7 +80,8 @@ class TACTClient:
 
     def get_site_contents(self, site_id: str) -> dict:
         """指定したサイトのリソース一覧を取得する。"""
-        url = f"{self.base_url}/direct/content/site/{site_id}.json"
+        encoded_site_id = quote(str(site_id), safe="")
+        url = f"{self.base_url}/direct/content/site/{encoded_site_id}.json"
         resp = self._get(url)
         return resp.json()
 
@@ -73,7 +110,9 @@ class TACTClient:
                 })
         return resources
 
-    def download_resource(self, resource_url: str, save_path: str) -> str:
+    def download_resource(
+        self, resource_url: str, save_path: str, expected_size: int | str | None = None
+    ) -> str:
         """指定したURLのリソースをダウンロードして保存する。
 
         Returns:
@@ -81,9 +120,37 @@ class TACTClient:
         """
         self._validate_url(resource_url)
         resp = self._get(resource_url, stream=True)
-        with open(save_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    f.flush()
+        directory = os.path.dirname(os.path.abspath(save_path))
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=directory, prefix=f".{os.path.basename(save_path)}.", delete=False
+            ) as f:
+                temporary_path = f.name
+                byte_count = 0
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        byte_count += len(chunk)
+                f.flush()
+                os.fsync(f.fileno())
+
+            if expected_size is not None:
+                try:
+                    expected = int(expected_size)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"APIのサイズ情報が不正です: {expected_size!r}") from exc
+                if byte_count != expected:
+                    raise IOError(
+                        f"ダウンロードサイズが一致しません: {byte_count} bytes (期待値 {expected} bytes)"
+                    )
+            os.replace(temporary_path, save_path)
+            temporary_path = None
+        finally:
+            resp.close()
+            if temporary_path is not None:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
         return save_path
