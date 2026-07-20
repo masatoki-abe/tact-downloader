@@ -1,8 +1,116 @@
 import re
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from tact_downloader import DOWNLOAD_BASE, VAULT_ROOT
 from tact_downloader.classifier import SiteInfo
+
+
+@dataclass
+class DownloadResult:
+    """ダウンロード処理の集計結果。"""
+
+    succeeded: int = 0
+    skipped: int = 0
+    failed: int = 0
+
+    def __add__(self, other: "DownloadResult") -> "DownloadResult":
+        return DownloadResult(
+            self.succeeded + other.succeeded,
+            self.skipped + other.skipped,
+            self.failed + other.failed,
+        )
+
+
+def format_file_size(size: int) -> str:
+    """ファイルサイズをCLI表示用の文字列へ変換する。"""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
+def download_sites(
+    client,
+    site_infos: list[SiteInfo],
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+    on_site: Callable[[SiteInfo], None] | None = None,
+    on_empty: Callable[[SiteInfo], None] | None = None,
+    on_resource: Callable[[str, str, str | None], None] | None = None,
+) -> DownloadResult:
+    """複数サイトのリソースを取得し、結果を集計する。
+
+    コールバックは表示などの呼び出し元固有の処理だけを担当する。
+    ダウンロードの判定、保存先検証、例外処理、集計はこの関数で統一する。
+    """
+    validate_site_paths(site_infos)
+    result = DownloadResult()
+
+    for info in site_infos:
+        if on_site:
+            on_site(info)
+        try:
+            resources = client.get_site_resources(info.site_id)
+        except Exception as exc:
+            if on_resource:
+                on_resource("site_failed", "", str(exc))
+            result.failed += 1
+            continue
+
+        if not resources:
+            if on_empty:
+                on_empty(info)
+            continue
+
+        dl_dir = build_download_path(info)
+        try:
+            validate_resource_paths(dl_dir, resources)
+        except ValueError as exc:
+            if on_resource:
+                on_resource("site_failed", "", str(exc))
+            result.failed += 1
+            continue
+
+        for resource in resources:
+            relative_path = resource["relative_path"]
+            rel = safe_relative_path(relative_path)
+            save_path = safe_resource_path(dl_dir, relative_path)
+
+            if not force and save_path.exists():
+                if on_resource:
+                    on_resource("skipped", rel, None)
+                result.skipped += 1
+                continue
+
+            if dry_run:
+                if on_resource:
+                    on_resource("dry_run", rel, None)
+                result.succeeded += 1
+                continue
+
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                client.download_resource(
+                    resource["url"], str(save_path), expected_size=resource.get("size")
+                )
+                size = (
+                    format_file_size(save_path.stat().st_size)
+                    if save_path.exists()
+                    else None
+                )
+                if on_resource:
+                    on_resource("succeeded", rel, size)
+                result.succeeded += 1
+            except Exception as exc:
+                if on_resource:
+                    on_resource("failed", rel, str(exc))
+                result.failed += 1
+
+    return result
 
 
 def build_download_path(site_info: SiteInfo) -> Path:

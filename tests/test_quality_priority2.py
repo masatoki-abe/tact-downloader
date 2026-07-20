@@ -150,3 +150,59 @@ def test_force_and_existing_file_behavior_in_obsidian(tmp_path):
     client.download_resource.assert_called_once_with(
         "https://tact.example.test/file", str(target), expected_size=3
     )
+
+
+def test_common_download_service_aggregates_sites_and_continues(tmp_path):
+    from tact_downloader.downloader import download_sites
+
+    first = classify_site("first", "2025年度 最初の授業 (春学期)")
+    second = classify_site("second", "2025年度 次の授業 (春学期)")
+    client = Mock()
+    client.get_site_resources.side_effect = [
+        [
+            {
+                "url": "https://tact.example.test/first",
+                "relative_path": "first.pdf",
+            }
+        ],
+        RuntimeError("resource failure"),
+    ]
+    client.download_resource.side_effect = RuntimeError("download failure")
+
+    with patch.object(downloader, "VAULT_ROOT", str(tmp_path)):
+        result = download_sites(client, [first, second])
+
+    assert (result.succeeded, result.skipped, result.failed) == (0, 0, 2)
+    assert client.get_site_resources.call_count == 2
+
+
+def test_common_download_service_treats_empty_resources_as_success(tmp_path):
+    from tact_downloader.downloader import download_sites
+
+    info = classify_site("site", "2025年度 リソースなし (春学期)")
+    client = Mock()
+    client.get_site_resources.return_value = []
+
+    with patch.object(downloader, "VAULT_ROOT", str(tmp_path)):
+        result = download_sites(client, [info])
+
+    assert (result.succeeded, result.skipped, result.failed) == (0, 0, 0)
+
+
+def test_common_download_service_reports_invalid_resource_paths(tmp_path):
+    from tact_downloader.downloader import download_sites
+
+    info = classify_site("site", "2025年度 不正な授業 (春学期)")
+    client = Mock()
+    client.get_site_resources.return_value = [
+        {
+            "url": "https://tact.example.test/file",
+            "relative_path": "../outside",
+        }
+    ]
+
+    with patch.object(downloader, "VAULT_ROOT", str(tmp_path)):
+        result = download_sites(client, [info])
+
+    assert (result.succeeded, result.skipped, result.failed) == (0, 0, 1)
+    client.download_resource.assert_not_called()

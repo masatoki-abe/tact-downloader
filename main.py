@@ -18,10 +18,7 @@ from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
 from tact_downloader.downloader import (
     build_download_path,
-    safe_relative_path,
-    safe_resource_path,
-    validate_resource_paths,
-    validate_site_paths,
+    download_sites,
 )
 from tact_downloader.exceptions import TACTError
 
@@ -143,90 +140,51 @@ def main() -> int:
             except ValueError:
                 print("番号を数値で入力してください（例: 1,3,5）。")
 
-    try:
-        validate_site_paths(targets)
-    except ValueError as e:
-        print(f"エラー: サイトの保存先パスが不正です - {e}")
-        sys.exit(1)
-
-    # ダウンロード実行
-    total_new = 0
-    total_skipped = 0
-    total_failed = 0
-    for info in targets:
+    def show_site(info: SiteInfo) -> None:
         print(f"\n{'=' * 60}")
         print(f"  サイト: {info.course_name}")
         print(f"  年度  : {info.year} / 学期: {info.semester or '(未検出)'}")
         print(f"  ID    : {info.site_id}")
         print(f"{'=' * 60}")
 
-        try:
-            resources = client.get_site_resources(info.site_id)
-        except Exception as e:
-            print(f"  エラー: リソース一覧の取得に失敗しました - {e}")
-            total_failed += 1
-            continue
+        print(f"  DL先  : {build_download_path(info)}")
 
-        dl_dir = build_download_path(info)
-        print(f"  DL先  : {dl_dir}")
+    def show_empty(_info: SiteInfo) -> None:
+        print("  リソースが見つかりませんでした。")
 
-        if not resources:
-            print("  リソースが見つかりませんでした。")
-            continue
+    def show_resource(status: str, rel: str, detail: str | None) -> None:
+        if status == "site_failed":
+            print(f"  エラー: リソース一覧の取得に失敗しました - {detail}")
+        elif status == "skipped":
+            print(f"    [スキップ] {rel}")
+        elif status == "dry_run":
+            print(f"    [dry-run] {rel}")
+        elif status == "succeeded":
+            print(f"    [完了]     {rel} ({detail})")
+        else:
+            print(f"    [失敗]     {rel} - {detail}")
 
-        try:
-            validate_resource_paths(dl_dir, resources)
-        except ValueError as e:
-            print(f"  エラー: 保存先パスが不正です - {e}")
-            total_failed += 1
-            continue
-
-        print(f"  ファイル数: {len(resources)}")
-        print()
-
-        for res in resources:
-            url = res["url"]
-            rel = safe_relative_path(res["relative_path"])
-            save_path = safe_resource_path(dl_dir, res["relative_path"])
-
-            if not args.force and save_path.exists():
-                print(f"    [スキップ] {rel}")
-                total_skipped += 1
-                continue
-
-            if args.dry_run:
-                print(f"    [dry-run] {rel}")
-                total_new += 1
-                continue
-
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-
-            try:
-                print(f"    [DL中]     {rel}", end="", flush=True)
-                client.download_resource(
-                    url, str(save_path), expected_size=res.get("size")
-                )
-                size_str = ""
-                if save_path.exists():
-                    size = save_path.stat().st_size
-                    if size < 1024:
-                        size_str = f" ({size} B)"
-                    elif size < 1024 * 1024:
-                        size_str = f" ({size / 1024:.1f} KB)"
-                    else:
-                        size_str = f" ({size / (1024 * 1024):.1f} MB)"
-                print(f"\r    [完了]     {rel}{size_str}")
-                total_new += 1
-            except Exception as e:
-                print(f"\r    [失敗]     {rel} - {e}")
-                total_failed += 1
+    # ダウンロード実行
+    try:
+        result = download_sites(
+            client,
+            targets,
+            force=args.force,
+            dry_run=args.dry_run,
+            on_site=show_site,
+            on_empty=show_empty,
+            on_resource=show_resource,
+        )
+    except ValueError as e:
+        print(f"エラー: サイトの保存先パスが不正です - {e}")
+        return 1
 
     print(f"\n{'=' * 60}")
     print(
-        f"  結果: {total_new} 件成功, {total_skipped} 件スキップ, {total_failed} 件失敗"
+        f"  結果: {result.succeeded} 件成功, {result.skipped} 件スキップ, {result.failed} 件失敗"
     )
     print(f"{'=' * 60}")
-    return 1 if total_failed else 0
+    return 1 if result.failed else 0
 
 
 if __name__ == "__main__":

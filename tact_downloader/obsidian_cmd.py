@@ -17,12 +17,8 @@ from tact_downloader import DOWNLOAD_BASE, TACT_BASE_URL, VAULT_ROOT
 from tact_downloader.auth import login
 from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
-from tact_downloader.downloader import (
-    build_download_path,
-    safe_resource_path,
-    validate_resource_paths,
-    validate_site_paths,
-)
+# Re-exported for callers that previously patched this module-level helper.
+from tact_downloader.downloader import build_download_path, download_sites  # noqa: F401
 from tact_downloader.exceptions import TACTError
 
 
@@ -79,62 +75,9 @@ def download_resources(
     force: bool = False,
     dry_run: bool = False,
 ) -> tuple[int, int, int]:
-    """1サイトを処理し、(成功, スキップ, 失敗)の件数を返す。"""
-    try:
-        resources = client.get_site_resources(info.site_id)
-    except Exception as e:
-        print(f"  エラー: リソース取得失敗 - {e}")
-        return (0, 0, 1)
-
-    dl_dir = build_download_path(info)
-    new_count = 0
-    skipped_count = 0
-    failed_count = 0
-
-    if not resources:
-        print("  リソースなし")
-        return (0, 0, 1)
-
-    try:
-        validate_resource_paths(dl_dir, resources)
-    except ValueError as e:
-        print(f"  エラー: 保存先パスが不正です - {e}")
-        return (0, 0)
-
-    for res in resources:
-        url = res["url"]
-        rel = res["relative_path"]
-        save_path = safe_resource_path(dl_dir, rel)
-
-        if not force and save_path.exists():
-            skipped_count += 1
-            continue
-
-        if dry_run:
-            print(f"  [DL対象] {rel}")
-            new_count += 1
-            continue
-
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            print(f"  [DL中] {rel} ...", end="", flush=True)
-            client.download_resource(url, str(save_path), expected_size=res.get("size"))
-            size_str = ""
-            if save_path.exists():
-                size = save_path.stat().st_size
-                if size < 1024:
-                    size_str = f"({size} B)"
-                elif size < 1024 * 1024:
-                    size_str = f"({size / 1024:.1f} KB)"
-                else:
-                    size_str = f"({size / (1024 * 1024):.1f} MB)"
-            print(f" 完了 {size_str}")
-            new_count += 1
-        except Exception as e:
-            print(f" 失敗 - {e}")
-            failed_count += 1
-
-    return (new_count, skipped_count, failed_count)
+    """1サイトを共通ダウンロードサービスへ委譲する。"""
+    result = download_sites(client, [info], force=force, dry_run=dry_run)
+    return (result.succeeded, result.skipped, result.failed)
 
 
 def main() -> int:
@@ -190,33 +133,47 @@ def main() -> int:
         print("該当する講義サイトが見つかりませんでした。")
         return 0
 
-    try:
-        validate_site_paths(targets)
-    except ValueError as e:
-        print(f"エラー: サイトの保存先パスが不正です - {e}")
-        return 1
-
     print(f"対象: {len(targets)} サイト")
     print()
 
-    total_new = 0
-    total_skipped = 0
-    total_failed = 0
-    for info in targets:
+    def show_site(info: SiteInfo) -> None:
         sem_str = f"[{info.semester}]" if info.semester else ""
         print(f"{info.year} {sem_str} {info.course_name}")
-        n, s, f = download_resources(
-            client, info, force=args.force, dry_run=args.dry_run
+
+    def show_empty(_info: SiteInfo) -> None:
+        print("  リソースなし")
+
+    def show_resource(status: str, rel: str, detail: str | None) -> None:
+        if status == "site_failed":
+            print(f"  エラー: リソース取得失敗 - {detail}")
+        elif status == "skipped":
+            print(f"  [スキップ] {rel}")
+        elif status == "dry_run":
+            print(f"  [DL対象] {rel}")
+        elif status == "succeeded":
+            print(f"  [DL中] {rel} ... 完了 ({detail})")
+        else:
+            print(f"  [DL中] {rel} ... 失敗 - {detail}")
+
+    try:
+        result = download_sites(
+            client,
+            targets,
+            force=args.force,
+            dry_run=args.dry_run,
+            on_site=show_site,
+            on_empty=show_empty,
+            on_resource=show_resource,
         )
-        total_new += n
-        total_skipped += s
-        total_failed += f
+    except ValueError as e:
+        print(f"エラー: 保存先パスが不正です - {e}")
+        return 1
 
     print()
     print(
-        f"結果: {total_new} 件成功 / {total_skipped} 件スキップ / {total_failed} 件失敗"
+        f"結果: {result.succeeded} 件成功 / {result.skipped} 件スキップ / {result.failed} 件失敗"
     )
-    return 1 if total_failed else 0
+    return 1 if result.failed else 0
 
 
 if __name__ == "__main__":
