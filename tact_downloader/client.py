@@ -1,4 +1,3 @@
-import json
 import os
 import re
 import tempfile
@@ -17,7 +16,9 @@ class TACTClient:
         self.base_url = base_url.rstrip("/")
         parsed = urlparse(self.base_url)
         if parsed.scheme != "https" or parsed.username or parsed.password:
-            raise ValueError("TACT_BASE_URLは認証情報を含まないHTTPS URLにしてください。")
+            raise ValueError(
+                "TACT_BASE_URLは認証情報を含まないHTTPS URLにしてください。"
+            )
         self.domain = parsed.hostname.lower() if parsed.hostname else ""
         try:
             self.port = parsed.port or 443
@@ -41,9 +42,7 @@ class TACTClient:
             or parsed.password
             or parsed.fragment
         ):
-            raise ValueError(
-                f"URL {url} は許可されたHTTPSホストではありません。"
-            )
+            raise ValueError(f"URL {url} は許可されたHTTPSホストではありません。")
 
     def _get(self, url: str, **kwargs) -> requests.Response:
         """認証済みセッションでGETリクエストを送信する。
@@ -65,9 +64,7 @@ class TACTClient:
         else:
             raise RuntimeError("リダイレクト回数が上限を超えました。")
         if resp.status_code == 401:
-            raise RuntimeError(
-                "セッションが切れました。login() を再実行してください。"
-            )
+            raise RuntimeError("セッションが切れました。login() を再実行してください。")
         resp.raise_for_status()
         return resp
 
@@ -101,13 +98,15 @@ class TACTClient:
                     relative_path = match.group(1)
                 else:
                     relative_path = path.rsplit("/", 1)[-1]
-                resources.append({
-                    "url": url,
-                    "name": relative_path.rsplit("/", 1)[-1],
-                    "relative_path": relative_path,
-                    "type": item.get("type", "resource"),
-                    "size": item.get("size"),
-                })
+                resources.append(
+                    {
+                        "url": url,
+                        "name": relative_path.rsplit("/", 1)[-1],
+                        "relative_path": relative_path,
+                        "type": item.get("type", "resource"),
+                        "size": item.get("size"),
+                    }
+                )
         return resources
 
     def download_resource(
@@ -124,7 +123,10 @@ class TACTClient:
         temporary_path = None
         try:
             with tempfile.NamedTemporaryFile(
-                mode="wb", dir=directory, prefix=f".{os.path.basename(save_path)}.", delete=False
+                mode="wb",
+                dir=directory,
+                prefix=f".{os.path.basename(save_path)}.",
+                delete=False,
             ) as f:
                 temporary_path = f.name
                 byte_count = 0
@@ -139,7 +141,9 @@ class TACTClient:
                 try:
                     expected = int(expected_size)
                 except (TypeError, ValueError) as exc:
-                    raise ValueError(f"APIのサイズ情報が不正です: {expected_size!r}") from exc
+                    raise ValueError(
+                        f"APIのサイズ情報が不正です: {expected_size!r}"
+                    ) from exc
                 if byte_count != expected:
                     raise IOError(
                         f"ダウンロードサイズが一致しません: {byte_count} bytes (期待値 {expected} bytes)"

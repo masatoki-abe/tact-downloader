@@ -1,7 +1,7 @@
-from pathlib import Path
 import re
+from pathlib import Path
 
-from tact_downloader import VAULT_ROOT, DOWNLOAD_BASE
+from tact_downloader import DOWNLOAD_BASE, VAULT_ROOT
 from tact_downloader.classifier import SiteInfo
 
 
@@ -82,7 +82,9 @@ def safe_relative_path(relative_path: str) -> str:
     """
     if not isinstance(relative_path, str) or not relative_path:
         raise ValueError("リソースパスが空です。")
-    if relative_path.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[\\/]", relative_path):
+    if relative_path.startswith(("/", "\\")) or re.match(
+        r"^[A-Za-z]:[\\/]", relative_path
+    ):
         raise ValueError(f"リソースパスに絶対パスは指定できません: {relative_path!r}")
 
     segments = []
@@ -90,7 +92,9 @@ def safe_relative_path(relative_path: str) -> str:
         if seg == "":
             continue
         if seg in {".", ".."}:
-            raise ValueError(f"リソースパスに不正なセグメントがあります: {relative_path!r}")
+            raise ValueError(
+                f"リソースパスに不正なセグメントがあります: {relative_path!r}"
+            )
         segments.append(_sanitize_segment(seg))
     if not segments:
         return "unnamed_file"

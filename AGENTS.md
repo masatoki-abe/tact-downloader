@@ -9,10 +9,17 @@ venv/bin/python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--fo
 ```
 
 - `--list` — サイト一覧表示。`--all` — 学期情報が検出されたサイトのみダウンロード（学期未検出のサイトはスキップ）。`--site` — 特定サイトのみ。省略時は対話的選択。
-- テスト実行: `venv/bin/python tests/test_classifier.py`（pytest 不使用。`__main__` として実行）
-- テストは `fixtures/titles_ans.json` が存在するとスナップショット比較モードになり、不一致で `exit(1)`。classifier 変更時は `generate_ans.py` で更新:
+- テスト実行: `venv/bin/python -m pytest`
+- classifierテストは `fixtures/titles_ans.json` とサイトID、タイトル、年度、学期、授業名を完全比較する。classifier 変更時は `generate_ans.py` で更新:
   ```bash
   venv/bin/python tests/generate_ans.py
+   ```
+
+- 品質確認:
+  ```bash
+  venv/bin/python -m ruff check .
+  venv/bin/python -m ruff format --check .
+  venv/bin/python -m pytest --cov=tact_downloader --cov=main --cov-branch
   ```
 
 ## セットアップ
@@ -20,6 +27,7 @@ venv/bin/python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--fo
 ```bash
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
+venv/bin/pip install -r requirements-dev.txt  # 開発・テスト時
 venv/bin/playwright install chromium
 cp .env.example .env   # 編集
 ```
@@ -67,7 +75,7 @@ venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 
 ## 非自明な点
 
-- `pyproject.toml`、`setup.py`、リンター、フォーマッター、型チェッカーの設定はいずれも存在しない。
+- `pyproject.toml` にpytest、coverage、Ruffの設定がある。`setup.py`と型チェッカーの設定は存在しない。
 - テストは `sys.path.insert(0, ...)` でパッケージを参照しており、正規インストールを必要としない。
 - README には `.tact_history.json` による重複回避の記載があるが、実際のスキップ判定は `main.py` の `if not args.force and save_path.exists()` であり、履歴ファイルは書き込まれない。
 - 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。`.env` の `SITE_TITLE_PATTERNS` は `__init__.py` で定義されるが、`classifier.py` はこれを参照しておらず、事実上未使用。

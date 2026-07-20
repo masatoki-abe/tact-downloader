@@ -13,16 +13,15 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from tact_downloader import TACT_BASE_URL, VAULT_ROOT, DOWNLOAD_BASE
+from tact_downloader import DOWNLOAD_BASE, TACT_BASE_URL, VAULT_ROOT
 from tact_downloader.auth import login
-from tact_downloader.classifier import classify_site, SiteInfo
+from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
 from tact_downloader.downloader import (
     build_download_path,
-    ensure_dir,
     safe_resource_path,
-    validate_site_paths,
     validate_resource_paths,
+    validate_site_paths,
 )
 
 
@@ -86,12 +85,12 @@ def download_resources(
         print(f"  エラー: リソース取得失敗 - {e}")
         return (0, 0)
 
-    dl_dir = ensure_dir(build_download_path(info))
+    dl_dir = build_download_path(info)
     new_count = 0
     skipped_count = 0
 
     if not resources:
-        print(f"  リソースなし")
+        print("  リソースなし")
         return (0, 0)
 
     try:
@@ -140,7 +139,9 @@ def main() -> None:
         description="Obsidian Shell Commands 連携 TACT ダウンロード"
     )
     parser.add_argument("--path", required=True, help="対象フォルダの絶対パス")
-    parser.add_argument("--dry-run", action="store_true", help="ダウンロードせず表示のみ")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="ダウンロードせず表示のみ"
+    )
     parser.add_argument("--force", action="store_true", help="既存ファイルを上書き")
     args = parser.parse_args()
 

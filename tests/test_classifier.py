@@ -1,11 +1,12 @@
 """実際の TACT タイトルを用いて classifier をテストする。"""
+
 import json
+import sys
 from pathlib import Path
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tact_downloader.classifier import classify_site, SiteInfo
+from tact_downloader.classifier import classify_site  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "titles.json"
 FIXTURE_ANS = Path(__file__).parent / "fixtures" / "titles_ans.json"
@@ -15,17 +16,23 @@ def load_titles():
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
+def load_expected():
+    return json.loads(FIXTURE_ANS.read_text(encoding="utf-8"))
+
+
 def run_classify(entries):
     results = []
     for entry in entries:
         info = classify_site(entry["site_id"], entry["title"])
-        results.append({
-            "site_id": info.site_id,
-            "title": info.raw_title,
-            "year": info.year,
-            "semester": info.semester,
-            "course_name": info.course_name,
-        })
+        results.append(
+            {
+                "site_id": info.site_id,
+                "title": info.raw_title,
+                "year": info.year,
+                "semester": info.semester,
+                "course_name": info.course_name,
+            }
+        )
     return results
 
 
@@ -35,39 +42,25 @@ def print_results(results):
         print(f"    ID={r['site_id']} | title={r['title']}")
 
 
-def main():
+def test_classifier_snapshot():
     entries = load_titles()
     results = run_classify(entries)
 
-    # 期待値ファイルが存在すれば検証、なければ出力のみ
-    if FIXTURE_ANS.exists():
-        expected = json.loads(FIXTURE_ANS.read_text(encoding="utf-8"))
-        errors = []
-        for r, e in zip(results, expected):
-            if r["site_id"] != e["site_id"]:
-                continue
-            if r["year"] != e["year"] or r["semester"] != e.get("semester", ""):
-                errors.append({
-                    "site_id": r["site_id"],
-                    "title": r["title"],
-                    "got": {"year": r["year"], "semester": r["semester"]},
-                    "expected": {"year": e["year"], "semester": e.get("semester", "")},
-                })
-        if errors:
-            print(f"\n=== {len(errors)} MISMATCHES ===\n")
-            for e in errors:
-                print(f"  {e['title']}")
-                print(f"    got:      year={e['got']['year']} semester={e['got']['semester']}")
-                print(f"    expected: year={e['expected']['year']} semester={e['expected']['semester']}")
-            sys.exit(1)
-        print(f"\nAll {len(results)} entries matched expected values.")
-    else:
-        print(f"\n=== {len(results)} entries (no expected file) ===\n")
-        print_results(results)
-        # 出力を期待値ファイルとして保存するか尋ねる
-        ans_path = FIXTURE_ANS.resolve()
-        print(f"\nHint: run  python tests/generate_ans.py  to create {ans_path}")
+    assert FIXTURE_ANS.exists(), f"期待値ファイルがありません: {FIXTURE_ANS}"
+    expected = load_expected()
+    expected_keys = {"site_id", "title", "year", "semester", "course_name"}
+
+    assert len(results) == len(entries)
+    assert len(expected) == len(entries)
+    assert all(set(item) == expected_keys for item in expected)
+    assert [item["site_id"] for item in entries] == [
+        item["site_id"] for item in expected
+    ]
+    assert [item["title"] for item in entries] == [item["title"] for item in expected]
+    assert results == expected
 
 
 if __name__ == "__main__":
-    main()
+    import pytest  # noqa: E402
+
+    raise SystemExit(pytest.main([__file__, "-v"]))

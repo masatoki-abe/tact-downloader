@@ -1,10 +1,10 @@
 """優先度1（パス安全性、原子性、URL検証）の回帰テスト。"""
+
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-
-import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -22,15 +22,18 @@ class DownloaderPathTests(unittest.TestCase):
     def test_build_path_stays_inside_vault_and_rejects_absolute_base(self):
         with tempfile.TemporaryDirectory() as temp:
             info = classify_site("site", "2025年度 安全な授業 (春学期)")
-            with patch.object(downloader, "VAULT_ROOT", temp), patch.object(
-                downloader, "DOWNLOAD_BASE", "大学"
+            with (
+                patch.object(downloader, "VAULT_ROOT", temp),
+                patch.object(downloader, "DOWNLOAD_BASE", "大学"),
             ):
                 path = downloader.build_download_path(info)
                 self.assertTrue(path.is_relative_to(Path(temp).resolve()))
 
-            with patch.object(downloader, "VAULT_ROOT", temp), patch.object(
-                downloader, "DOWNLOAD_BASE", "../outside"
-            ), self.assertRaises(ValueError):
+            with (
+                patch.object(downloader, "VAULT_ROOT", temp),
+                patch.object(downloader, "DOWNLOAD_BASE", "../outside"),
+                self.assertRaises(ValueError),
+            ):
                 downloader.build_download_path(info)
 
     def test_detects_sanitized_resource_collision(self):
@@ -40,12 +43,16 @@ class DownloaderPathTests(unittest.TestCase):
                 {"relative_path": "a:b.txt"},
                 {"relative_path": "a?b.txt"},
             ]
-            with patch.object(downloader, "VAULT_ROOT", temp), self.assertRaises(ValueError):
+            with (
+                patch.object(downloader, "VAULT_ROOT", temp),
+                self.assertRaises(ValueError),
+            ):
                 downloader.validate_resource_paths(directory, resources)
 
     def test_detects_sanitized_site_collision(self):
-        with tempfile.TemporaryDirectory() as temp, patch.object(
-            downloader, "VAULT_ROOT", temp
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            patch.object(downloader, "VAULT_ROOT", temp),
         ):
             first = classify_site("site-1", "2025年度 A:B (春学期)")
             second = classify_site("site-2", "2025年度 A?B (春学期)")

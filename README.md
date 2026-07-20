@@ -9,6 +9,8 @@
 ```bash
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
+venv/bin/pip install -r requirements-dev.txt  # 開発・テスト時
+venv/bin/playwright install chromium
 ```
 
 ### 2. 環境設定
@@ -33,6 +35,21 @@ cp .env.example .env
 ### 3. ネットワーク確認
 
 TACTに学内ネットワークまたはVPN経由でアクセスできることを確認。
+
+### 4. テストと品質確認
+
+```bash
+venv/bin/python -m pytest
+venv/bin/python -m pytest --cov=tact_downloader --cov=main --cov-branch
+venv/bin/python -m ruff check .
+venv/bin/python -m ruff format --check .
+```
+
+classifierの期待値を更新する場合は、内容を確認したうえで次を実行します。
+
+```bash
+venv/bin/python tests/generate_ans.py
+```
 
 ## 使い方
 

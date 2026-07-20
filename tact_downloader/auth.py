@@ -47,7 +47,8 @@ def login(
                 saved_cookies = json.load(f)
             for c in saved_cookies:
                 session.cookies.set(
-                    c["name"], c["value"],
+                    c["name"],
+                    c["value"],
                     domain=c.get("domain", ""),
                     path=c.get("path", "/"),
                 )
@@ -85,6 +86,31 @@ def login(
         print("=" * 60)
         print()
 
+    return _login_with_browser(
+        session,
+        base_url,
+        cookie_path,
+        email,
+        password,
+        totp_secret,
+        auto_mode,
+        silent,
+        verbose,
+    )
+
+
+def _login_with_browser(
+    session,
+    base_url,
+    cookie_path,
+    email,
+    password,
+    totp_secret,
+    auto_mode,
+    silent,
+    verbose,
+):
+    """Playwrightによるログイン処理。ログイン選択部分から分離している。"""
     try:
         from playwright.sync_api import sync_playwright
 
@@ -104,7 +130,9 @@ def login(
                 ),
             )
             page = context.new_page()
-            page.goto(f"{base_url}/portal", wait_until="domcontentloaded", timeout=30000)
+            page.goto(
+                f"{base_url}/portal", wait_until="domcontentloaded", timeout=30000
+            )
 
             if auto_mode:
                 try:
@@ -122,11 +150,15 @@ def login(
                         with open(cookie_path, "w") as f:
                             json.dump(cookies, f, ensure_ascii=False, indent=2)
                         if verbose:
-                            print(f"      Cookie {len(cookies)} 個を保存: {COOKIE_FILE}")
+                            print(
+                                f"      Cookie {len(cookies)} 個を保存: {COOKIE_FILE}"
+                            )
                         for c in cookies:
                             session.cookies.set(
-                                c["name"], c["value"],
-                                domain=c["domain"], path=c["path"],
+                                c["name"],
+                                c["value"],
+                                domain=c["domain"],
+                                path=c["path"],
                             )
                         if not silent:
                             print("ログイン成功")
@@ -142,14 +174,12 @@ def login(
         print("  以下の手順で手動セットアップしてください:")
         print()
         print(f"  1. ブラウザで {base_url}/portal にアクセスしてログイン")
-        print(f"  2. ブラウザ拡張機能で Cookie を JSON 形式でエクスポート")
+        print("  2. ブラウザ拡張機能で Cookie を JSON 形式でエクスポート")
         print(f"  3. {COOKIE_FILE} に保存")
-        print(f"  4. このスクリプトを再実行")
+        print("  4. このスクリプトを再実行")
         print()
     except Exception as e:
-        raise RuntimeError(
-            f"ブラウザログイン中にエラーが発生しました:\n  {e}\n"
-        )
+        raise RuntimeError(f"ブラウザログイン中にエラーが発生しました:\n  {e}\n")
 
     raise RuntimeError("ログインに失敗しました。")
 
@@ -163,20 +193,21 @@ def _auto_fill_login(page, email, password, totp_secret, silent):
     """
     page.wait_for_load_state("domcontentloaded")
 
-    _tact_portal_login(page)          # 1. TACTポータル → MS SSO
-    _ms_email(page, email)            # 2. MS メールアドレス入力
-    _ms_password(page, password)      # 3. MS パスワード入力
+    _tact_portal_login(page)  # 1. TACTポータル → MS SSO
+    _ms_email(page, email)  # 2. MS メールアドレス入力
+    _ms_password(page, password)  # 3. MS パスワード入力
     if totp_secret:
-        _ms_totp(page, totp_secret)   # 4. MS TOTP認証
+        _ms_totp(page, totp_secret)  # 4. MS TOTP認証
     elif not silent:
         print("  認証アプリのコードを手動で入力してください...")
-    _ms_stay_signed_in(page)          # 5. MS サインイン維持（いいえ）
-    _thers_consent(page)              # 6. 機構同意画面（同意）
+    _ms_stay_signed_in(page)  # 5. MS サインイン維持（いいえ）
+    _thers_consent(page)  # 6. 機構同意画面（同意）
 
 
 # ============================================================
 #  1: TACT ポータル → Microsoft SSO リダイレクト
 # ============================================================
+
 
 def _tact_portal_login(page):
     """【1: TACTポータル】「Federation Login」リンクをクリック。"""
@@ -187,6 +218,7 @@ def _tact_portal_login(page):
 # ============================================================
 #  2: Microsoft メールアドレス入力
 # ============================================================
+
 
 def _ms_email(page, email):
     """【2: MS メールアドレス入力画面】"""
@@ -201,6 +233,7 @@ def _ms_email(page, email):
 #  3: Microsoft パスワード入力
 # ============================================================
 
+
 def _ms_password(page, password):
     """【3: MS パスワード入力画面】"""
     page.locator('input[type="password"]').first.wait_for(timeout=30000)
@@ -212,6 +245,7 @@ def _ms_password(page, password):
 # ============================================================
 #  4: Microsoft TOTP 認証
 # ============================================================
+
 
 def _ms_totp(page, totp_secret):
     """【4: MS TOTP認証画面】コード自動生成→Enter。
@@ -241,6 +275,7 @@ def _ms_totp(page, totp_secret):
 #  5: Microsoft サインイン維持画面
 # ============================================================
 
+
 def _ms_stay_signed_in(page):
     """【5: MS サインイン維持画面】→ いいえ"""
     try:
@@ -253,6 +288,7 @@ def _ms_stay_signed_in(page):
 # ============================================================
 #  6: 機構同意画面
 # ============================================================
+
 
 def _thers_consent(page):
     """【6: 機構同意画面】→ 同意"""

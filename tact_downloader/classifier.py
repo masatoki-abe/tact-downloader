@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 SEMESTER_PATTERNS: list[tuple[str, str]] = [
     # 学期n期形式（優先度高）

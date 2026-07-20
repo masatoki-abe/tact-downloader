@@ -16,7 +16,9 @@ import urllib.request
 from pathlib import Path
 
 SC_VERSION = "0.23.0"
-SC_DOWNLOAD_BASE = f"https://github.com/Taitava/obsidian-shellcommands/releases/download/{SC_VERSION}"
+SC_DOWNLOAD_BASE = (
+    f"https://github.com/Taitava/obsidian-shellcommands/releases/download/{SC_VERSION}"
+)
 PLUGIN_ID = "obsidian-shellcommands"
 PLUGIN_FILES = ["main.js", "manifest.json", "styles.css"]
 
@@ -37,10 +39,7 @@ DATA_JSON_TEMPLATE = {
     "enable_events": True,
     "approve_modals_by_pressing_enter_key": True,
     "command_palette": {
-        "re_execute_last_shell_command": {
-            "enabled": True,
-            "prefix": "Re-execute: "
-        }
+        "re_execute_last_shell_command": {"enabled": True, "prefix": "Re-execute: "}
     },
     "max_visible_lines_in_shell_command_fields": False,
     "prompts": [],
@@ -48,7 +47,7 @@ DATA_JSON_TEMPLATE = {
     "custom_variables": [],
     "custom_variables_notify_changes_via": {
         "obsidian_uri": True,
-        "output_assignment": True
+        "output_assignment": True,
     },
     "custom_shells": [],
     "output_wrappers": [],
@@ -106,13 +105,15 @@ def download_plugin(plugin_dir: Path) -> None:
 def build_data_json(project_root: Path, vault_root: Path) -> dict:
     sc_path = project_root / "venv" / "bin" / "python"
     if not sc_path.exists():
-        print(f"警告: {sc_path} が見つかりません。venv が正しくセットアップされていない可能性があります。")
+        print(
+            f"警告: {sc_path} が見つかりません。venv が正しくセットアップされていない可能性があります。"
+        )
         # Try to find python in venv
         alt_path = project_root / ".venv" / "bin" / "python"
         if alt_path.exists():
             sc_path = alt_path
 
-    command = f"{sc_path} -m tact_downloader.obsidian_cmd --path \"{{!event_folder_path:absolute}}\""
+    command = f'{sc_path} -m tact_downloader.obsidian_cmd --path "{{!event_folder_path:absolute}}"'
     working_dir = str(project_root)
 
     data = dict(DATA_JSON_TEMPLATE)
@@ -120,43 +121,26 @@ def build_data_json(project_root: Path, vault_root: Path) -> dict:
     data["shell_commands"] = [
         {
             "id": "tact-download-folder",
-            "platform_specific_commands": {
-                "default": command
-            },
+            "platform_specific_commands": {"default": command},
             "shells": {},
             "alias": "TACT: 現在のフォルダをダウンロード",
             "icon": "download",
             "confirm_execution": False,
             "ignore_error_codes": [],
-            "input_contents": {
-                "stdin": None
-            },
+            "input_contents": {"stdin": None},
             "output_handlers": {
-                "stdout": {
-                    "handler": "notification",
-                    "convert_ansi_code": True
-                },
-                "stderr": {
-                    "handler": "notification",
-                    "convert_ansi_code": True
-                }
+                "stdout": {"handler": "notification", "convert_ansi_code": True},
+                "stderr": {"handler": "notification", "convert_ansi_code": True},
             },
-            "output_wrappers": {
-                "stdout": None,
-                "stderr": None
-            },
+            "output_wrappers": {"stdout": None, "stderr": None},
             "output_channel_order": "stdout-first",
             "output_handling_mode": "buffered",
             "execution_notification_mode": None,
-            "events": {
-                "folder-menu": {
-                    "enabled": True
-                }
-            },
+            "events": {"folder-menu": {"enabled": True}},
             "debounce": None,
             "command_palette_availability": "enabled",
             "preactions": [],
-            "variable_default_values": {}
+            "variable_default_values": {},
         }
     ]
     return data
@@ -166,7 +150,7 @@ def write_data_json(plugin_dir: Path, data: dict) -> None:
     dest = plugin_dir / "data.json"
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"  [作成] data.json")
+    print("  [作成] data.json")
 
 
 def update_community_plugins(vault_root: Path) -> None:

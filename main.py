@@ -14,15 +14,14 @@ import sys
 
 from tact_downloader import TACT_BASE_URL
 from tact_downloader.auth import login
-from tact_downloader.classifier import classify_site, SiteInfo
+from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
 from tact_downloader.downloader import (
     build_download_path,
-    ensure_dir,
     safe_relative_path,
     safe_resource_path,
-    validate_site_paths,
     validate_resource_paths,
+    validate_site_paths,
 )
 
 
@@ -38,15 +37,9 @@ def main() -> None:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="デバッグ用の詳細情報を表示"
     )
-    parser.add_argument(
-        "--list", action="store_true", help="講義サイト一覧を表示"
-    )
-    parser.add_argument(
-        "--all", action="store_true", help="全サイト一括ダウンロード"
-    )
-    parser.add_argument(
-        "--site", type=str, help="指定したサイトIDのみダウンロード"
-    )
+    parser.add_argument("--list", action="store_true", help="講義サイト一覧を表示")
+    parser.add_argument("--all", action="store_true", help="全サイト一括ダウンロード")
+    parser.add_argument("--site", type=str, help="指定したサイトIDのみダウンロード")
     parser.add_argument(
         "--dry-run", action="store_true", help="ダウンロードせず内容表示のみ"
     )
@@ -80,7 +73,9 @@ def main() -> None:
     # --list: 一覧表示のみ
     if args.list:
         print(f"\n全 {len(site_infos)} 件の講義サイト:\n")
-        for info in sorted(site_infos, key=lambda x: (x.year, x.semester, x.course_name)):
+        for info in sorted(
+            site_infos, key=lambda x: (x.year, x.semester, x.course_name)
+        ):
             print(f"  [{info.site_id}]")
             print(f"    年度   : {info.year}")
             print(f"    学期   : {info.semester or '(未検出)'}")
@@ -106,12 +101,18 @@ def main() -> None:
     else:
         # 対話的に選択
         print(f"\n全 {len(site_infos)} 件の講義サイト:\n")
-        for i, info in enumerate(sorted(site_infos, key=lambda x: (x.year, x.semester, x.course_name)), 1):
+        for i, info in enumerate(
+            sorted(site_infos, key=lambda x: (x.year, x.semester, x.course_name)), 1
+        ):
             semester_str = f"[{info.semester}]" if info.semester else ""
-            print(f"  {i:3d}. [{info.year}] {semester_str} {info.course_name}  ({info.site_id})")
+            print(
+                f"  {i:3d}. [{info.year}] {semester_str} {info.course_name}  ({info.site_id})"
+            )
         print()
         while True:
-            choice = input("ダウンロードする番号を選択 (カンマ区切り複数可 / 'all'=全件 / 'q'=終了): ").strip()
+            choice = input(
+                "ダウンロードする番号を選択 (カンマ区切り複数可 / 'all'=全件 / 'q'=終了): "
+            ).strip()
             if choice.lower() == "q":
                 print("終了します。")
                 sys.exit(0)
@@ -121,7 +122,9 @@ def main() -> None:
             try:
                 indices = [int(x.strip()) - 1 for x in choice.split(",")]
                 targets = [
-                    sorted(site_infos, key=lambda x: (x.year, x.semester, x.course_name))[i]
+                    sorted(
+                        site_infos, key=lambda x: (x.year, x.semester, x.course_name)
+                    )[i]
                     for i in indices
                     if 0 <= i < len(site_infos)
                 ]
@@ -153,7 +156,7 @@ def main() -> None:
             print(f"  エラー: リソース一覧の取得に失敗しました - {e}")
             continue
 
-        dl_dir = ensure_dir(build_download_path(info))
+        dl_dir = build_download_path(info)
         print(f"  DL先  : {dl_dir}")
 
         if not resources:
@@ -188,7 +191,9 @@ def main() -> None:
 
             try:
                 print(f"    [DL中]     {rel}", end="", flush=True)
-                client.download_resource(url, str(save_path), expected_size=res.get("size"))
+                client.download_resource(
+                    url, str(save_path), expected_size=res.get("size")
+                )
                 size_str = ""
                 if save_path.exists():
                     size = save_path.stat().st_size
