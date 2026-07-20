@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import time
 from pathlib import Path
 
@@ -8,6 +9,59 @@ import requests
 from tact_downloader import COOKIE_FILE
 from tact_downloader.client import DEFAULT_TIMEOUT
 from tact_downloader.exceptions import AuthenticationError, NetworkError
+
+
+def _load_saved_cookies(cookie_path):
+    """保存済みCookieを検証して返す。不正なファイルは明示的に失敗させる。"""
+    try:
+        os.chmod(cookie_path, 0o600)
+        with open(cookie_path) as f:
+            cookies = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        raise ValueError(f"保存Cookieを読み込めません: {exc}") from exc
+
+    if not isinstance(cookies, list):
+        raise ValueError("保存Cookieの形式が不正です（配列が必要です）")
+    for cookie in cookies:
+        if (
+            not isinstance(cookie, dict)
+            or not isinstance(cookie.get("name"), str)
+            or not isinstance(cookie.get("value"), str)
+        ):
+            raise ValueError("保存Cookieの形式が不正です")
+    return cookies
+
+
+def _save_cookies(cookie_path, cookies):
+    """Cookieを所有者専用の一時ファイルへ保存して原子的に置換する。"""
+    cookie_path = Path(cookie_path)
+    cookie_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=cookie_path.parent,
+            prefix=f".{cookie_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            os.chmod(temporary.fileno(), 0o600)
+            json.dump(cookies, temporary, ensure_ascii=False, indent=2)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, cookie_path)
+        os.chmod(cookie_path, 0o600)
+    except OSError as exc:
+        raise AuthenticationError(f"Cookieの保存に失敗しました: {exc}") from exc
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def login(
@@ -45,8 +99,7 @@ def login(
         if not silent:
             print("保存済み Cookie を確認中...")
         try:
-            with open(cookie_path) as f:
-                saved_cookies = json.load(f)
+            saved_cookies = _load_saved_cookies(cookie_path)
             for c in saved_cookies:
                 session.cookies.set(
                     c["name"],
@@ -159,9 +212,8 @@ def _login_with_browser(
                 time.sleep(1)
                 try:
                     if '"loggedIn": true' in page.content():
-                        cookies = context.cookies()
-                        with open(cookie_path, "w") as f:
-                            json.dump(cookies, f, ensure_ascii=False, indent=2)
+                        cookies = context.cookies(base_url)
+                        _save_cookies(cookie_path, cookies)
                         if verbose:
                             print(
                                 f"      Cookie {len(cookies)} 個を保存: {COOKIE_FILE}"
@@ -177,6 +229,8 @@ def _login_with_browser(
                             print("ログイン成功")
                         browser.close()
                         return session
+                except AuthenticationError:
+                    raise
                 except Exception:
                     pass
 
