@@ -5,7 +5,8 @@ from unittest.mock import Mock
 import pytest
 import requests
 
-from tact_downloader.client import TACTClient
+from tact_downloader.client import DEFAULT_TIMEOUT, TACTClient
+from tact_downloader.exceptions import AuthenticationError, DataError, NetworkError
 
 
 def response_with_status(status):
@@ -16,16 +17,16 @@ def response_with_status(status):
     return response
 
 
-@pytest.mark.parametrize("status", [404, 429, 500])
+@pytest.mark.parametrize("status", [404, 500])
 def test_http_errors_are_propagated_without_retry(status):
     session = Mock()
     session.get.return_value = response_with_status(status)
     client = TACTClient(session, "https://tact.example.test")
 
-    with pytest.raises(requests.HTTPError) as exc_info:
+    with pytest.raises(NetworkError) as exc_info:
         client._get("https://tact.example.test/api")
 
-    assert exc_info.value.response.status_code == status
+    assert str(status) in str(exc_info.value)
     session.get.assert_called_once()
 
 
@@ -34,7 +35,7 @@ def test_401_is_reported_as_authentication_error():
     session.get.return_value = response_with_status(401)
     client = TACTClient(session, "https://tact.example.test")
 
-    with pytest.raises(RuntimeError, match="セッションが切れました"):
+    with pytest.raises(AuthenticationError, match="セッションが切れました"):
         client._get("https://tact.example.test/api")
 
 
@@ -43,8 +44,9 @@ def test_timeout_is_propagated():
     session.get.side_effect = requests.ConnectTimeout("timeout")
     client = TACTClient(session, "https://tact.example.test")
 
-    with pytest.raises(requests.ConnectTimeout):
+    with pytest.raises(NetworkError) as exc_info:
         client.get_sites()
+    assert isinstance(exc_info.value.__cause__, requests.ConnectTimeout)
 
 
 def test_invalid_json_is_not_treated_as_empty_response():
@@ -57,7 +59,7 @@ def test_invalid_json_is_not_treated_as_empty_response():
     session.get.return_value = response
     client = TACTClient(session, "https://tact.example.test")
 
-    with pytest.raises(ValueError, match="invalid json"):
+    with pytest.raises(DataError, match="サイト一覧のJSONが不正"):
         client.get_sites()
 
 
@@ -68,3 +70,43 @@ def test_http_url_is_rejected_before_request():
     with pytest.raises(ValueError):
         client._get("http://tact.example.test/api")
     session.get.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [429, 502, 503, 504])
+def test_retryable_status_is_retried_until_success(status):
+    session = Mock()
+    first = response_with_status(status)
+    success = response_with_status(200)
+    session.get.side_effect = [first, success]
+    client = TACTClient(session, "https://tact.example.test")
+
+    result = client._get("https://tact.example.test/api")
+
+    assert result is success
+    assert session.get.call_count == 2
+
+
+def test_retryable_status_stops_after_retry_limit():
+    session = Mock()
+    responses = [response_with_status(503) for _ in range(3)]
+    session.get.side_effect = responses
+    client = TACTClient(session, "https://tact.example.test")
+
+    with pytest.raises(NetworkError):
+        client._get("https://tact.example.test/api")
+
+    assert session.get.call_count == 3
+
+
+def test_default_timeout_is_applied():
+    session = Mock()
+    session.get.return_value = response_with_status(200)
+    client = TACTClient(session, "https://tact.example.test")
+
+    client._get("https://tact.example.test/api")
+
+    session.get.assert_called_once_with(
+        "https://tact.example.test/api",
+        allow_redirects=False,
+        timeout=DEFAULT_TIMEOUT,
+    )

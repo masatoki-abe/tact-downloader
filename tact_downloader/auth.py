@@ -6,6 +6,8 @@ from pathlib import Path
 import requests
 
 from tact_downloader import COOKIE_FILE
+from tact_downloader.client import DEFAULT_TIMEOUT
+from tact_downloader.exceptions import AuthenticationError, NetworkError
 
 
 def login(
@@ -52,13 +54,24 @@ def login(
                     domain=c.get("domain", ""),
                     path=c.get("path", "/"),
                 )
-            test_resp = session.get(f"{base_url}/portal", allow_redirects=True)
+            try:
+                test_resp = session.get(
+                    f"{base_url}/portal",
+                    allow_redirects=True,
+                    timeout=DEFAULT_TIMEOUT,
+                )
+            except requests.RequestException as exc:
+                raise NetworkError(f"TACTへの通信に失敗しました: {exc}") from exc
             if '"loggedIn": true' in test_resp.text:
+                test_resp.close()
                 if not silent:
                     print("ログイン成功 (Cookie再利用)")
                 return session
+            test_resp.close()
             if verbose:
                 print("      保存 Cookie は期限切れです")
+        except NetworkError:
+            raise
         except Exception as e:
             if verbose:
                 print(f"      Cookie読み込みエラー: {e}")
@@ -179,9 +192,11 @@ def _login_with_browser(
         print("  4. このスクリプトを再実行")
         print()
     except Exception as e:
-        raise RuntimeError(f"ブラウザログイン中にエラーが発生しました:\n  {e}\n")
+        raise AuthenticationError(
+            f"ブラウザログイン中にエラーが発生しました:\n  {e}\n"
+        ) from e
 
-    raise RuntimeError("ログインに失敗しました。")
+    raise AuthenticationError("ログインに失敗しました。")
 
 
 def _auto_fill_login(page, email, password, totp_secret, silent):

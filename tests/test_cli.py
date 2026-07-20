@@ -4,6 +4,8 @@ import sys
 from unittest.mock import Mock, patch
 
 import main
+from tact_downloader import downloader
+from tact_downloader.exceptions import NetworkError
 
 
 def fake_client(sites):
@@ -21,7 +23,7 @@ def test_list_does_not_download():
         patch.object(main, "TACTClient", return_value=client),
         patch.object(sys, "argv", ["main.py", "--list"]),
     ):
-        main.main()
+        assert main.main() == 0
 
     client.get_site_resources.assert_not_called()
     client.download_resource.assert_not_called()
@@ -40,7 +42,7 @@ def test_all_skips_sites_without_semester():
         patch.object(main, "TACTClient", return_value=client),
         patch.object(sys, "argv", ["main.py", "--all"]),
     ):
-        main.main()
+        assert main.main() == 0
 
     client.get_site_resources.assert_called_once_with("with")
 
@@ -59,12 +61,36 @@ def test_dry_run_does_not_create_directory(tmp_path):
         patch.object(main, "login", return_value=Mock()),
         patch.object(main, "TACTClient", return_value=client),
         patch.object(main, "VAULT_ROOT", str(tmp_path), create=True),
+        patch.object(downloader, "VAULT_ROOT", str(tmp_path)),
         patch.object(
             main, "build_download_path", return_value=tmp_path / "TACTリソース"
         ),
         patch.object(sys, "argv", ["main.py", "--all", "--dry-run"]),
     ):
-        main.main()
+        assert main.main() == 0
 
     assert not (tmp_path / "TACTリソース").exists()
     client.download_resource.assert_not_called()
+
+
+def test_partial_download_failure_returns_nonzero_and_reports_failure(tmp_path, capsys):
+    client = fake_client([{"entityId": "site", "entityTitle": "2025年度 A (春学期)"}])
+    client.get_site_resources.return_value = [
+        {
+            "url": "https://tact.example.test/file",
+            "relative_path": "file.pdf",
+            "size": 1,
+        }
+    ]
+    client.download_resource.side_effect = NetworkError("timeout")
+    with (
+        patch.object(main, "TACT_BASE_URL", "https://tact.example.test"),
+        patch.object(main, "login", return_value=Mock()),
+        patch.object(main, "TACTClient", return_value=client),
+        patch.object(downloader, "VAULT_ROOT", str(tmp_path)),
+        patch.object(main, "build_download_path", return_value=tmp_path / "大学"),
+        patch.object(sys, "argv", ["main.py", "--all"]),
+    ):
+        assert main.main() == 1
+
+    assert "1 件失敗" in capsys.readouterr().out

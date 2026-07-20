@@ -23,6 +23,7 @@ from tact_downloader.downloader import (
     validate_resource_paths,
     validate_site_paths,
 )
+from tact_downloader.exceptions import TACTError
 
 
 def parse_scope(folder_path: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -77,21 +78,22 @@ def download_resources(
     info: SiteInfo,
     force: bool = False,
     dry_run: bool = False,
-) -> tuple[int, int]:
-    """1サイトのリソースをダウンロードする。戻り値は (新規, スキップ) の件数。"""
+) -> tuple[int, int, int]:
+    """1サイトを処理し、(成功, スキップ, 失敗)の件数を返す。"""
     try:
         resources = client.get_site_resources(info.site_id)
     except Exception as e:
         print(f"  エラー: リソース取得失敗 - {e}")
-        return (0, 0)
+        return (0, 0, 1)
 
     dl_dir = build_download_path(info)
     new_count = 0
     skipped_count = 0
+    failed_count = 0
 
     if not resources:
         print("  リソースなし")
-        return (0, 0)
+        return (0, 0, 1)
 
     try:
         validate_resource_paths(dl_dir, resources)
@@ -130,11 +132,12 @@ def download_resources(
             new_count += 1
         except Exception as e:
             print(f" 失敗 - {e}")
+            failed_count += 1
 
-    return (new_count, skipped_count)
+    return (new_count, skipped_count, failed_count)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(
         description="Obsidian Shell Commands 連携 TACT ダウンロード"
     )
@@ -153,11 +156,19 @@ def main() -> None:
     print()
 
     print("TACT にログインしています...")
-    session = login(TACT_BASE_URL, verbose=False)
-    client = TACTClient(session)
+    try:
+        session = login(TACT_BASE_URL, verbose=False)
+        client = TACTClient(session)
+    except TACTError as e:
+        print(f"エラー: {e}")
+        return 1
 
     print("講義サイト一覧を取得しています...")
-    sites = client.get_sites()
+    try:
+        sites = client.get_sites()
+    except TACTError as e:
+        print(f"エラー: 講義サイト一覧の取得に失敗しました - {e}")
+        return 1
 
     site_infos: list[SiteInfo] = []
     for site in sites:
@@ -177,29 +188,36 @@ def main() -> None:
 
     if not targets:
         print("該当する講義サイトが見つかりませんでした。")
-        return
+        return 0
 
     try:
         validate_site_paths(targets)
     except ValueError as e:
         print(f"エラー: サイトの保存先パスが不正です - {e}")
-        return
+        return 1
 
     print(f"対象: {len(targets)} サイト")
     print()
 
     total_new = 0
     total_skipped = 0
+    total_failed = 0
     for info in targets:
         sem_str = f"[{info.semester}]" if info.semester else ""
         print(f"{info.year} {sem_str} {info.course_name}")
-        n, s = download_resources(client, info, force=args.force, dry_run=args.dry_run)
+        n, s, f = download_resources(
+            client, info, force=args.force, dry_run=args.dry_run
+        )
         total_new += n
         total_skipped += s
+        total_failed += f
 
     print()
-    print(f"完了: {total_new} 件ダウンロード / {total_skipped} 件スキップ")
+    print(
+        f"結果: {total_new} 件成功 / {total_skipped} 件スキップ / {total_failed} 件失敗"
+    )
+    return 1 if total_failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

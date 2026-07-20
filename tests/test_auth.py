@@ -4,6 +4,7 @@ import json
 from unittest.mock import Mock, patch
 
 from tact_downloader import auth
+from tact_downloader.client import DEFAULT_TIMEOUT
 
 
 def test_reuses_valid_saved_cookie(tmp_path):
@@ -25,7 +26,9 @@ def test_reuses_valid_saved_cookie(tmp_path):
     assert result is session
     session.cookies.set.assert_called_once_with("sid", "value", domain="", path="/")
     session.get.assert_called_once_with(
-        "https://tact.example.test/portal", allow_redirects=True
+        "https://tact.example.test/portal",
+        allow_redirects=True,
+        timeout=DEFAULT_TIMEOUT,
     )
     browser_login.assert_not_called()
 

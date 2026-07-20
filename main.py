@@ -23,6 +23,7 @@ from tact_downloader.downloader import (
     validate_resource_paths,
     validate_site_paths,
 )
+from tact_downloader.exceptions import TACTError
 
 
 def check_config() -> None:
@@ -32,7 +33,7 @@ def check_config() -> None:
         sys.exit(1)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="TACTリソース自動ダウンロードツール")
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="デバッグ用の詳細情報を表示"
@@ -52,12 +53,20 @@ def main() -> None:
 
     # ログイン
     print("TACT にログインしています...")
-    session = login(TACT_BASE_URL, verbose=args.verbose)
-    client = TACTClient(session)
+    try:
+        session = login(TACT_BASE_URL, verbose=args.verbose)
+        client = TACTClient(session)
+    except TACTError as e:
+        print(f"エラー: {e}")
+        return 1
 
     # サイト一覧取得
     print("講義サイト一覧を取得しています...")
-    sites = client.get_sites()
+    try:
+        sites = client.get_sites()
+    except TACTError as e:
+        print(f"エラー: 講義サイト一覧の取得に失敗しました - {e}")
+        return 1
     if not sites:
         print("講義サイトが見つかりませんでした。")
         sys.exit(0)
@@ -82,7 +91,7 @@ def main() -> None:
             print(f"    授業名 : {info.course_name}")
             print(f"    DL先   : {build_download_path(info)}")
             print()
-        return
+        return 0
 
     # ダウンロード対象の絞り込み
     if args.site:
@@ -143,6 +152,7 @@ def main() -> None:
     # ダウンロード実行
     total_new = 0
     total_skipped = 0
+    total_failed = 0
     for info in targets:
         print(f"\n{'=' * 60}")
         print(f"  サイト: {info.course_name}")
@@ -154,6 +164,7 @@ def main() -> None:
             resources = client.get_site_resources(info.site_id)
         except Exception as e:
             print(f"  エラー: リソース一覧の取得に失敗しました - {e}")
+            total_failed += 1
             continue
 
         dl_dir = build_download_path(info)
@@ -167,6 +178,7 @@ def main() -> None:
             validate_resource_paths(dl_dir, resources)
         except ValueError as e:
             print(f"  エラー: 保存先パスが不正です - {e}")
+            total_failed += 1
             continue
 
         print(f"  ファイル数: {len(resources)}")
@@ -207,11 +219,15 @@ def main() -> None:
                 total_new += 1
             except Exception as e:
                 print(f"\r    [失敗]     {rel} - {e}")
+                total_failed += 1
 
     print(f"\n{'=' * 60}")
-    print(f"  完了: {total_new} 件ダウンロード, {total_skipped} 件スキップ")
+    print(
+        f"  結果: {total_new} 件成功, {total_skipped} 件スキップ, {total_failed} 件失敗"
+    )
     print(f"{'=' * 60}")
+    return 1 if total_failed else 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

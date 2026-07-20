@@ -1,10 +1,11 @@
 """Obsidian連携のスコープ判定回帰テスト。"""
 
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 
-from tact_downloader import obsidian_cmd
+from tact_downloader import downloader, obsidian_cmd
 from tact_downloader.classifier import classify_site
 
 
@@ -49,3 +50,25 @@ def test_filter_sites_matches_each_scope_level():
     assert obsidian_cmd.filter_sites(sites, "2025年度", None, None) == sites[:1]
     assert obsidian_cmd.filter_sites(sites, "2025年度", "春学期", "A") == sites[:1]
     assert obsidian_cmd.filter_sites(sites, "2025年度", "秋学期", None) == []
+
+
+def test_download_resources_counts_failed_download():
+    info = classify_site("site", "2025年度 A (春学期)")
+    client = Mock()
+    client.get_site_resources.return_value = [
+        {
+            "url": "https://tact.example.test/file",
+            "relative_path": "file.pdf",
+            "size": 1,
+        }
+    ]
+    client.download_resource.side_effect = RuntimeError("network failure")
+
+    with (
+        patch.object(obsidian_cmd, "build_download_path", return_value=Path("/tmp")),
+        patch.object(obsidian_cmd, "VAULT_ROOT", "/tmp"),
+        patch.object(downloader, "VAULT_ROOT", "/tmp"),
+    ):
+        result = obsidian_cmd.download_resources(client, info)
+
+    assert result == (0, 0, 1)

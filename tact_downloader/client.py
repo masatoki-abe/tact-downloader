@@ -1,11 +1,17 @@
 import os
 import re
 import tempfile
+import time
 from urllib.parse import quote, unquote, urljoin, urlparse
 
 import requests
 
 from tact_downloader import TACT_BASE_URL
+from tact_downloader.exceptions import AuthenticationError, DataError, NetworkError
+
+DEFAULT_TIMEOUT = (5, 30)
+MAX_RETRIES = 2
+RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 
 
 class TACTClient:
@@ -44,35 +50,72 @@ class TACTClient:
         ):
             raise ValueError(f"URL {url} は許可されたHTTPSホストではありません。")
 
+    @staticmethod
+    def _close_response(resp: requests.Response) -> None:
+        """実レスポンスと簡易モックのどちらも安全に解放する。"""
+        try:
+            resp.close()
+        except AttributeError:
+            pass
+
     def _get(self, url: str, **kwargs) -> requests.Response:
         """認証済みセッションでGETリクエストを送信する。
         セッション切れの場合は再認証を試みる。
         """
         self._validate_url(url)
         current_url = url
-        for _ in range(5):
+        retry_count = 0
+        redirect_count = 0
+        kwargs.setdefault("timeout", DEFAULT_TIMEOUT)
+        while True:
             self._validate_url(current_url)
-            resp = self.session.get(current_url, allow_redirects=False, **kwargs)
+            try:
+                resp = self.session.get(current_url, allow_redirects=False, **kwargs)
+            except requests.RequestException as exc:
+                raise NetworkError(f"TACTへの通信に失敗しました: {exc}") from exc
             if resp.is_redirect or resp.is_permanent_redirect:
                 location = resp.headers.get("Location")
-                resp.close()
+                self._close_response(resp)
                 if not location:
-                    raise RuntimeError("リダイレクト先が指定されていません。")
+                    raise DataError("リダイレクト先が指定されていません。")
                 current_url = urljoin(current_url, location)
+                redirect_count += 1
+                if redirect_count >= 5:
+                    raise NetworkError("リダイレクト回数が上限を超えました。")
+                continue
+            if resp.status_code in RETRYABLE_STATUS_CODES and retry_count < MAX_RETRIES:
+                self._close_response(resp)
+                time.sleep(0.1 * (2**retry_count))
+                retry_count += 1
                 continue
             break
-        else:
-            raise RuntimeError("リダイレクト回数が上限を超えました。")
         if resp.status_code == 401:
-            raise RuntimeError("セッションが切れました。login() を再実行してください。")
-        resp.raise_for_status()
+            self._close_response(resp)
+            raise AuthenticationError(
+                "セッションが切れました。login() を再実行してください。"
+            )
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            self._close_response(resp)
+            raise NetworkError(f"TACT APIがHTTPエラーを返しました: {exc}") from exc
         return resp
 
     def get_sites(self) -> list[dict]:
         """受講中の全講義サイト一覧を取得する。"""
         url = f"{self.base_url}/direct/site.json?_limit=1000000"
         resp = self._get(url)
-        data = resp.json()
+        try:
+            data = resp.json()
+        except (ValueError, TypeError) as exc:
+            self._close_response(resp)
+            raise DataError("サイト一覧のJSONが不正です。") from exc
+        finally:
+            self._close_response(resp)
+        if not isinstance(data, dict) or not isinstance(
+            data.get("site_collection", []), list
+        ):
+            raise DataError("サイト一覧の形式が不正です。")
         return data.get("site_collection", [])
 
     def get_site_contents(self, site_id: str) -> dict:
@@ -80,14 +123,27 @@ class TACTClient:
         encoded_site_id = quote(str(site_id), safe="")
         url = f"{self.base_url}/direct/content/site/{encoded_site_id}.json"
         resp = self._get(url)
-        return resp.json()
+        try:
+            data = resp.json()
+        except (ValueError, TypeError) as exc:
+            self._close_response(resp)
+            raise DataError("サイトコンテンツのJSONが不正です。") from exc
+        finally:
+            self._close_response(resp)
+        if not isinstance(data, dict):
+            raise DataError("サイトコンテンツの形式が不正です。")
+        return data
 
     def get_site_resources(self, site_id: str) -> list[dict]:
         """指定したサイトのダウンロード可能なリソースURL一覧を取得する。"""
         data = self.get_site_contents(site_id)
         contents = data.get("content_collection", [])
+        if not isinstance(contents, list):
+            raise DataError("サイトコンテンツ一覧の形式が不正です。")
         resources = []
         for item in contents:
+            if not isinstance(item, dict):
+                raise DataError("サイトコンテンツ項目の形式が不正です。")
             url = item.get("url", "")
             if url and not url.endswith("/"):
                 parsed = urlparse(url)
@@ -130,10 +186,13 @@ class TACTClient:
             ) as f:
                 temporary_path = f.name
                 byte_count = 0
-                for chunk in resp.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-                        byte_count += len(chunk)
+                try:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            byte_count += len(chunk)
+                except requests.RequestException as exc:
+                    raise NetworkError(f"リソースの受信に失敗しました: {exc}") from exc
                 f.flush()
                 os.fsync(f.fileno())
 
@@ -141,17 +200,17 @@ class TACTClient:
                 try:
                     expected = int(expected_size)
                 except (TypeError, ValueError) as exc:
-                    raise ValueError(
+                    raise DataError(
                         f"APIのサイズ情報が不正です: {expected_size!r}"
                     ) from exc
                 if byte_count != expected:
-                    raise IOError(
+                    raise DataError(
                         f"ダウンロードサイズが一致しません: {byte_count} bytes (期待値 {expected} bytes)"
                     )
             os.replace(temporary_path, save_path)
             temporary_path = None
         finally:
-            resp.close()
+            self._close_response(resp)
             if temporary_path is not None:
                 try:
                     os.unlink(temporary_path)

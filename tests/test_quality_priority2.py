@@ -61,7 +61,9 @@ def test_interrupted_download_keeps_existing_file_and_removes_temp(tmp_path):
     target = tmp_path / "file.txt"
     target.write_bytes(b"old")
 
-    with pytest.raises(requests.ConnectionError):
+    from tact_downloader.exceptions import NetworkError
+
+    with pytest.raises(NetworkError):
         client.download_resource("https://tact.example.test/file", str(target))
 
     assert target.read_bytes() == b"old"
@@ -115,7 +117,7 @@ def test_dry_run_does_not_create_directories_in_obsidian(tmp_path):
         patch.object(downloader, "VAULT_ROOT", str(tmp_path)),
         patch.object(downloader, "DOWNLOAD_BASE", "大学"),
     ):
-        assert obsidian_cmd.download_resources(client, info, dry_run=True) == (1, 0)
+        assert obsidian_cmd.download_resources(client, info, dry_run=True) == (1, 0, 0)
 
     assert list(tmp_path.iterdir()) == []
     client.download_resource.assert_not_called()
@@ -142,8 +144,8 @@ def test_force_and_existing_file_behavior_in_obsidian(tmp_path):
         target = downloader.build_download_path(info) / "file.pdf"
         target.parent.mkdir(parents=True)
         target.write_bytes(b"old")
-        assert obsidian_cmd.download_resources(client, info) == (0, 1)
-        assert obsidian_cmd.download_resources(client, info, force=True) == (1, 0)
+        assert obsidian_cmd.download_resources(client, info) == (0, 1, 0)
+        assert obsidian_cmd.download_resources(client, info, force=True) == (1, 0, 0)
 
     client.download_resource.assert_called_once_with(
         "https://tact.example.test/file", str(target), expected_size=3
