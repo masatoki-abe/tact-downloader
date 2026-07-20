@@ -10,8 +10,13 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
+import os
+import shlex
+import shutil
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -21,6 +26,12 @@ SC_DOWNLOAD_BASE = (
 )
 PLUGIN_ID = "obsidian-shellcommands"
 PLUGIN_FILES = ["main.js", "manifest.json", "styles.css"]
+PLUGIN_SHA256 = {
+    "main.js": "0c5e247a91c96c0af5f3e333ba43be4285469566c819d59b7de129ad33d14d8a",
+    "manifest.json": "20ae8ccfa8972027d35b4457d21b6ab86aebc8e3b1dee5eba34dad19e46a2462",
+    "styles.css": "3bd8380e5aa53fc447ea6a4c14ddfb94198f1a6d003e6e5f994b459cf9684c53",
+}
+COMMAND_ID = "tact-download-folder"
 
 DATA_JSON_TEMPLATE = {
     "settings_version": SC_VERSION,
@@ -90,16 +101,38 @@ def download_plugin(plugin_dir: Path) -> None:
     for filename in PLUGIN_FILES:
         url = f"{SC_DOWNLOAD_BASE}/{filename}"
         dest = plugin_dir / filename
-        if dest.exists():
+        if dest.exists() and sha256_file(dest) == PLUGIN_SHA256[filename]:
             print(f"  [スキップ] {filename} (既存)")
             continue
         print(f"  [DL] {filename} ...", end="", flush=True)
+        temporary_path = None
         try:
-            urllib.request.urlretrieve(url, dest)
+            with urllib.request.urlopen(url, timeout=30) as response:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", dir=plugin_dir, prefix=f".{filename}.", delete=False
+                ) as temporary:
+                    temporary_path = Path(temporary.name)
+                    shutil.copyfileobj(response, temporary)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+            if sha256_file(temporary_path) != PLUGIN_SHA256[filename]:
+                raise ValueError(f"{filename} のSHA-256検証に失敗しました")
+            os.replace(temporary_path, dest)
+            temporary_path = None
             print(" 完了")
         except Exception as e:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
             print(f" 失敗: {e}")
             sys.exit(1)
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_data_json(project_root: Path, vault_root: Path) -> dict:
@@ -113,14 +146,17 @@ def build_data_json(project_root: Path, vault_root: Path) -> dict:
         if alt_path.exists():
             sc_path = alt_path
 
-    command = f'{sc_path} -m tact_downloader.obsidian_cmd --path "{{!event_folder_path:absolute}}"'
+    command = (
+        f"{shlex.quote(str(sc_path))} -m tact_downloader.obsidian_cmd --path "
+        "{{event_folder_path:absolute}}"
+    )
     working_dir = str(project_root)
 
     data = dict(DATA_JSON_TEMPLATE)
     data["working_directory"] = working_dir
     data["shell_commands"] = [
         {
-            "id": "tact-download-folder",
+            "id": COMMAND_ID,
             "platform_specific_commands": {"default": command},
             "shells": {},
             "alias": "TACT: 現在のフォルダをダウンロード",
@@ -148,22 +184,97 @@ def build_data_json(project_root: Path, vault_root: Path) -> dict:
 
 def write_data_json(plugin_dir: Path, data: dict) -> None:
     dest = plugin_dir / "data.json"
-    with open(dest, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print("  [作成] data.json")
+    write_json_atomically(dest, data)
+    print("  [更新] data.json")
+
+
+def write_json_atomically(dest: Path, data: object) -> None:
+    content = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    old_content = dest.read_text(encoding="utf-8") if dest.exists() else None
+    if old_content == content:
+        return
+    if dest.exists():
+        write_text_atomically(dest.with_name(f"{dest.name}.bak"), old_content)
+    write_text_atomically(dest, content)
+
+
+def write_text_atomically(dest: Path, content: str) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=dest.parent,
+            prefix=f".{dest.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, dest)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def build_updated_data(existing: dict, generated: dict) -> dict:
+    data = dict(existing)
+    commands = data.get("shell_commands", [])
+    if not isinstance(commands, list):
+        raise ValueError("data.json の shell_commands は配列である必要があります")
+    updated_command = generated["shell_commands"][0]
+    data["shell_commands"] = []
+    found = False
+    for command in commands:
+        if isinstance(command, dict) and command.get("id") == COMMAND_ID:
+            if not found:
+                data["shell_commands"].append(updated_command)
+                found = True
+        else:
+            data["shell_commands"].append(command)
+    if not found:
+        data["shell_commands"].append(updated_command)
+    data.setdefault("settings_version", SC_VERSION)
+    return data
+
+
+def update_data_json(plugin_dir: Path, generated: dict) -> None:
+    dest = plugin_dir / "data.json"
+    if dest.exists():
+        try:
+            existing = json.loads(dest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"既存のdata.jsonを読み込めません: {exc}") from exc
+        if not isinstance(existing, dict):
+            raise ValueError(
+                "data.jsonのトップレベルはオブジェクトである必要があります"
+            )
+        data = build_updated_data(existing, generated)
+    else:
+        data = generated
+    write_data_json(plugin_dir, data)
 
 
 def update_community_plugins(vault_root: Path) -> None:
     plugins_file = vault_root / ".obsidian" / "community-plugins.json"
     plugins: list[str] = []
     if plugins_file.exists():
-        with open(plugins_file, encoding="utf-8") as f:
-            plugins = json.load(f)
+        try:
+            with open(plugins_file, encoding="utf-8") as f:
+                plugins = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"community-plugins.jsonを読み込めません: {exc}") from exc
+        if not isinstance(plugins, list) or not all(
+            isinstance(item, str) for item in plugins
+        ):
+            raise ValueError("community-plugins.jsonは文字列配列である必要があります")
 
     if PLUGIN_ID not in plugins:
         plugins.append(PLUGIN_ID)
-        with open(plugins_file, "w", encoding="utf-8") as f:
-            json.dump(plugins, f, ensure_ascii=False, indent=2)
+        write_json_atomically(plugins_file, plugins)
         print(f"  [追加] community-plugins.json に {PLUGIN_ID} を追加")
     else:
         print(f"  [確認] {PLUGIN_ID} は既に community-plugins.json に登録済み")
@@ -197,7 +308,7 @@ def main() -> None:
     # Step 2: write data.json
     print("Step 2/3: data.json を生成")
     data = build_data_json(project_root, vault_root)
-    write_data_json(plugin_dir, data)
+    update_data_json(plugin_dir, data)
     print()
 
     # Step 3: update community-plugins.json
