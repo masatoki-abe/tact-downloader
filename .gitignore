@@ -2,7 +2,10 @@
 __pycache__/
 *.pyc
 .tact_history.json
-venv/
+.venv/
+node_modules/
+.mypy_cache/
+.pyright/
 .pytest_cache/
 .coverage
 .coverage.*

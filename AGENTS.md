@@ -5,30 +5,38 @@
 ## コマンド
 
 ```bash
-venv/bin/python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--force]
+uv run python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--force]
 ```
 
 - `--list` — サイト一覧表示。`--all` — 学期情報が検出されたサイトのみダウンロード（学期未検出のサイトはスキップ）。`--site` — 特定サイトのみ。省略時は対話的選択。
-- テスト実行: `venv/bin/python -m pytest`
+- テスト実行: `uv run pytest`
 - classifierテストは `fixtures/titles_ans.json` とサイトID、タイトル、年度、学期、授業名を完全比較する。classifier 変更時は `generate_ans.py` で更新:
+
   ```bash
-  venv/bin/python tests/generate_ans.py
-   ```
+  uv run python tests/generate_ans.py
+  ```
 
 - 品質確認:
+
   ```bash
-  venv/bin/python -m ruff check .
-  venv/bin/python -m ruff format --check .
-  venv/bin/python -m pytest --cov=tact_downloader --cov=main --cov-branch
+  uv run ruff check .
+  uv run ruff format --check .
+  npm exec --no -- prettier --check .
+  npm exec --no -- taplo format --check
+  uv run pytest --cov=tact_downloader --cov=main --cov-branch
+  uv run python scripts/check.py
   ```
+
+- コミット前フックの初回設定: `uv run pre-commit install --hook-type pre-commit`
+- 完全検査は `uv run --locked python scripts/check.py` で実行する。pyrightは導入済みだが、初期段階では実行しない。Node依存は初回セットアップ時に `npm ci` で導入する。
 
 ## セットアップ
 
 ```bash
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-venv/bin/pip install -r requirements-dev.txt  # 開発・テスト時
-venv/bin/playwright install chromium
+paru -S uv
+uv sync
+uv run playwright install chromium
+npm ci
 cp .env.example .env   # 編集
 ```
 
@@ -39,11 +47,12 @@ cp .env.example .env   # 編集
 Obsidian のファイルエクスプローラでフォルダを右クリック → 階層に応じた TACT ダウンロードを実行できる。
 
 ```bash
-venv/bin/python scripts/setup-obsidian.py             # .env の VAULT_ROOT を使用
-venv/bin/python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
+uv run python scripts/setup-obsidian.py             # .env の VAULT_ROOT を使用
+uv run python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 ```
 
 上記を実行すると以下が自動構成される:
+
 - Shell Commands プラグインのダウンロード・配置
 - フォルダ右クリックメニューに「TACT: 現在のフォルダをダウンロード」を追加
 - community-plugins.json への登録

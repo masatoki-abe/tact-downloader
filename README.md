@@ -6,13 +6,15 @@
 
 ## セットアップ
 
-### 1. 依存ライブラリのインストール
+### 1. uvの導入と依存ライブラリのインストール
+
+Arch Linuxでは次のコマンドで`uv`を導入します。
 
 ```bash
-python3 -m venv venv
-venv/bin/pip install -r requirements.txt
-venv/bin/pip install -r requirements-dev.txt  # 開発・テスト時
-venv/bin/playwright install chromium
+paru -S uv
+uv sync
+uv run playwright install chromium
+npm ci
 ```
 
 ### 2. 環境設定
@@ -48,38 +50,59 @@ TACTに学内ネットワークまたはVPN経由でアクセスできること�
 ### 4. テストと品質確認
 
 ```bash
-venv/bin/python -m pytest
-venv/bin/python -m pytest --cov=tact_downloader --cov=main --cov-branch
-venv/bin/python -m ruff check .
-venv/bin/python -m ruff format --check .
+uv run pytest
+uv run pytest --cov=tact_downloader --cov=main --cov-branch
+uv run ruff check .
+uv run ruff format --check .
+npm exec --no -- prettier --check .
+npm exec --no -- taplo format --check
+uv run python scripts/check.py
 ```
+
+コミット前の完全検査を自動化する場合は、初回だけ次を実行します。
+
+```bash
+uv sync
+npm ci
+uv run pre-commit install --hook-type pre-commit
+```
+
+以後の`git commit`では、lockファイルの整合性、Prettier、Taplo、Ruff、全テスト、branch coverageを自動的に確認します。いずれかが失敗した場合、コミットは作成されません。フォーマットの自動修正は行わないため、必要に応じて次を先に実行してください。
+
+```bash
+uv run ruff format .
+npm exec --no -- prettier --write .
+npm exec --no -- taplo format
+```
+
+`pyright`は開発環境へ導入済みですが、初期段階では品質検査やコミットフックでは実行しません。型チェックの導入は別の変更単位で行います。
 
 classifierの期待値を更新する場合は、内容を確認したうえで次を実行します。
 
 ```bash
-venv/bin/python tests/generate_ans.py
+uv run python tests/generate_ans.py
 ```
 
 ## 使い方
 
 ```bash
 # 講義サイト一覧表示
-venv/bin/python main.py --list
+uv run python main.py --list
 
 # 学期情報を検出できた全サイトを一括ダウンロード
-venv/bin/python main.py --all
+uv run python main.py --all
 
 # 特定サイトのみダウンロード
-venv/bin/python main.py --site 2025_XXXXXXX
+uv run python main.py --site 2025_XXXXXXX
 
 # ダウンロード予定を表示（vault内は変更しない）
-venv/bin/python main.py --all --dry-run
+uv run python main.py --all --dry-run
 
 # ダウンロード済みでも再取得
-venv/bin/python main.py --all --force
+uv run python main.py --all --force
 
 # 対話的にサイト選択
-venv/bin/python main.py
+uv run python main.py
 ```
 
 `--all` は、タイトルから学期情報を検出できたサイトだけを対象にします。学期未検出のサイトはスキップします。`--site` または対話選択では、学期未検出のサイトも指定できます。
@@ -92,21 +115,21 @@ Obsidianのファイルエクスプローラからフォルダを右クリック
 
 ```bash
 # .env の VAULT_ROOT を使用
-venv/bin/python scripts/setup-obsidian.py
+uv run python scripts/setup-obsidian.py
 
 # vaultを明示
-venv/bin/python scripts/setup-obsidian.py /path/to/vault
+uv run python scripts/setup-obsidian.py /path/to/vault
 ```
 
 この処理はShell Commandsプラグインをダウンロードして配置し、`TACT: 現在のフォルダをダウンロード` コマンドを登録します。既存のShell Commands設定は保持され、変更前の`data.json`と`community-plugins.json`はバックアップされます。セットアップ後、Obsidianを再起動してフォルダの右クリックメニューから実行してください。
 
-| 右クリックするフォルダ | 対象 |
-| ------------------------ | ---- |
-| `大学/` | 学期情報がある全サイト |
-| `大学/{年度}/` | 指定年度の学期情報がある全サイト |
-| `大学/{年度}/{学期}/` | 指定年度・学期の全サイト |
-| `大学/{年度}/{学期}/{授業名}/` | 指定授業のみ |
-| `TACTリソース/` 以下 | `TACTリソース/` を除いた授業階層として判定 |
+| 右クリックするフォルダ         | 対象                                       |
+| ------------------------------ | ------------------------------------------ |
+| `大学/`                        | 学期情報がある全サイト                     |
+| `大学/{年度}/`                 | 指定年度の学期情報がある全サイト           |
+| `大学/{年度}/{学期}/`          | 指定年度・学期の全サイト                   |
+| `大学/{年度}/{学期}/{授業名}/` | 指定授業のみ                               |
+| `TACTリソース/` 以下           | `TACTリソース/` を除いた授業階層として判定 |
 
 ## ダウンロード先
 

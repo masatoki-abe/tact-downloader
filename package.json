@@ -1,0 +1,12 @@
+{
+  "name": "tact-downloader-formatting",
+  "private": true,
+  "devDependencies": {
+    "@taplo/cli": "0.7.0",
+    "prettier": "3.9.5"
+  },
+  "scripts": {
+    "format": "prettier --write . && taplo format",
+    "format:check": "prettier --check . && taplo format --check"
+  }
+}

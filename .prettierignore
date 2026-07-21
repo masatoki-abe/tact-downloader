@@ -1,0 +1,7 @@
+.coverage
+.pytest_cache
+.ruff_cache
+.venv
+package-lock.json
+coverage.xml
+uv.lock

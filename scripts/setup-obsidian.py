@@ -136,15 +136,11 @@ def sha256_file(path: Path) -> str:
 
 
 def build_data_json(project_root: Path, vault_root: Path) -> dict:
-    sc_path = project_root / "venv" / "bin" / "python"
+    sc_path = project_root / ".venv" / "bin" / "python"
     if not sc_path.exists():
         print(
-            f"警告: {sc_path} が見つかりません。venv が正しくセットアップされていない可能性があります。"
+            f"警告: {sc_path} が見つかりません。.venv が正しくセットアップされていない可能性があります。"
         )
-        # Try to find python in venv
-        alt_path = project_root / ".venv" / "bin" / "python"
-        if alt_path.exists():
-            sc_path = alt_path
 
     command = (
         f"{shlex.quote(str(sc_path))} -m tact_downloader.obsidian_cmd --path "
