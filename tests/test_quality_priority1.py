@@ -69,7 +69,7 @@ class ClientTests(unittest.TestCase):
             "https://tact.example.test:444/file",
         ):
             with self.subTest(url=url), self.assertRaises(ValueError):
-                client._validate_url(url)
+                client._validate_url(url)  # pyright: ignore[reportPrivateUsage]
 
     def test_download_is_atomic_and_validates_size(self):
         session = Mock()
@@ -107,7 +107,9 @@ class ClientTests(unittest.TestCase):
         client = TACTClient(session, "https://tact.example.test")
 
         with self.assertRaises(ValueError):
-            client._get("https://tact.example.test/file")
+            client._get(  # pyright: ignore[reportPrivateUsage]
+                "https://tact.example.test/file"
+            )
         self.assertEqual(session.get.call_count, 1)
 
     def test_site_id_is_url_encoded(self):

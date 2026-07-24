@@ -3,6 +3,6 @@
   "include": ["tests"],
   "exclude": [".venv", "node_modules", "**/__pycache__"],
   "extraPaths": ["."],
-  "typeCheckingMode": "standard",
+  "typeCheckingMode": "strict",
   "pythonVersion": "3.10"
 }

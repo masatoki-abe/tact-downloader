@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -12,8 +13,19 @@ FIXTURE = Path(__file__).parent / "fixtures" / "titles.json"
 FIXTURE_ANS = Path(__file__).parent / "fixtures" / "titles_ans.json"
 
 
-def build_snapshot(entries):
-    results = []
+class TitleEntry(TypedDict):
+    site_id: str
+    title: str
+
+
+class SnapshotEntry(TitleEntry):
+    year: str
+    semester: str
+    course_name: str
+
+
+def build_snapshot(entries: list[TitleEntry]) -> list[SnapshotEntry]:
+    results: list[SnapshotEntry] = []
     for entry in entries:
         info = classify_site(entry["site_id"], entry["title"])
         results.append(
@@ -28,7 +40,7 @@ def build_snapshot(entries):
     return results
 
 
-def main():
+def main() -> None:
     entries = json.loads(FIXTURE.read_text(encoding="utf-8"))
     results = build_snapshot(entries)
     payload = json.dumps(results, ensure_ascii=False, indent=2) + "\n"

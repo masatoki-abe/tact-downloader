@@ -1,5 +1,6 @@
 """Obsidian連携のスコープ判定回帰テスト。"""
 
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -10,7 +11,7 @@ from tact_downloader.classifier import classify_site
 
 
 @pytest.fixture
-def vault(tmp_path):
+def vault(tmp_path: Path) -> Generator[Path, None, None]:
     with (
         patch.object(obsidian_cmd, "VAULT_ROOT", str(tmp_path)),
         patch.object(obsidian_cmd, "DOWNLOAD_BASE", "大学"),
@@ -31,17 +32,21 @@ def vault(tmp_path):
         ),
     ],
 )
-def test_parse_scope(vault, relative, expected):
+def test_parse_scope(
+    vault: Path,
+    relative: str,
+    expected: tuple[str | None, str | None, str | None],
+) -> None:
     assert obsidian_cmd.parse_scope(str(vault / relative)) == expected
 
 
-def test_parse_scope_rejects_vault_external_path(vault, tmp_path):
+def test_parse_scope_rejects_vault_external_path(vault: Path, tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc_info:
         obsidian_cmd.parse_scope(str(tmp_path.parent / "outside"))
     assert exc_info.value.code == 1
 
 
-def test_filter_sites_matches_each_scope_level():
+def test_filter_sites_matches_each_scope_level() -> None:
     sites = [
         classify_site("1", "2025年度 A (春学期)"),
         classify_site("2", "2026年度 B (秋学期)"),
@@ -52,7 +57,7 @@ def test_filter_sites_matches_each_scope_level():
     assert obsidian_cmd.filter_sites(sites, "2025年度", "秋学期", None) == []
 
 
-def test_download_resources_counts_failed_download():
+def test_download_resources_counts_failed_download() -> None:
     info = classify_site("site", "2025年度 A (春学期)")
     client = Mock()
     client.get_site_resources.return_value = [

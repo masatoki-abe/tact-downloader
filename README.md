@@ -77,7 +77,7 @@ npm exec --no -- prettier --write .
 npm exec --no -- taplo format
 ```
 
-`pyright`はPython 3.10を対象に、`main.py`、`tact_downloader/`、`scripts/`を`strict`モードで検査します。`tests/`は`pyright-tests.json`を使用して`standard`モードで検査します。
+`pyright`はPython 3.10を対象に、`main.py`、`tact_downloader/`、`scripts/`、`tests/`を`strict`モードで検査します。テスト固有の設定は`pyright-tests.json`で管理します。
 
 classifierの期待値を更新する場合は、内容を確認したうえで次を実行します。
 

@@ -1,21 +1,24 @@
 """通常CLIの主要分岐回帰テスト。"""
 
 import sys
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+from _pytest.capture import CaptureFixture
 
 import main
 from tact_downloader import downloader
 from tact_downloader.exceptions import NetworkError
 
 
-def fake_client(sites):
+def fake_client(sites: list[dict[str, str]]) -> Mock:
     client = Mock()
     client.get_sites.return_value = sites
     client.get_site_resources.return_value = []
     return client
 
 
-def test_list_does_not_download():
+def test_list_does_not_download() -> None:
     client = fake_client([{"entityId": "site", "entityTitle": "2025年度 A (春学期)"}])
     with (
         patch.object(main, "TACT_BASE_URL", "https://tact.example.test"),
@@ -29,7 +32,7 @@ def test_list_does_not_download():
     client.download_resource.assert_not_called()
 
 
-def test_all_skips_sites_without_semester():
+def test_all_skips_sites_without_semester() -> None:
     client = fake_client(
         [
             {"entityId": "with", "entityTitle": "2025年度 A (春学期)"},
@@ -47,7 +50,9 @@ def test_all_skips_sites_without_semester():
     client.get_site_resources.assert_called_once_with("with")
 
 
-def test_dry_run_does_not_create_directory(tmp_path, capsys):
+def test_dry_run_does_not_create_directory(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
     client = fake_client([{"entityId": "site", "entityTitle": "2025年度 A (春学期)"}])
     client.get_site_resources.return_value = [
         {
@@ -74,7 +79,9 @@ def test_dry_run_does_not_create_directory(tmp_path, capsys):
     assert "1 件ダウンロード予定" in capsys.readouterr().out
 
 
-def test_partial_download_failure_returns_nonzero_and_reports_failure(tmp_path, capsys):
+def test_partial_download_failure_returns_nonzero_and_reports_failure(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
     client = fake_client([{"entityId": "site", "entityTitle": "2025年度 A (春学期)"}])
     client.get_site_resources.return_value = [
         {

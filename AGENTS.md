@@ -30,7 +30,7 @@ uv run python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--forc
   ```
 
 - コミット前フックの初回設定: `uv run pre-commit install --hook-type pre-commit`
-- 完全検査は `uv run --locked python scripts/check.py` で実行する。PyrightはPython 3.10を対象に、本番コードを`strict`、テストコードを`standard`モードで検査する。Node依存は初回セットアップ時に `npm ci` で導入する。
+- 完全検査は `uv run --locked python scripts/check.py` で実行する。PyrightはPython 3.10を対象に、本番コードとテストコードを`strict`モードで検査する。Node依存は初回セットアップ時に `npm ci` で導入する。
 
 ## セットアップ
 
@@ -86,7 +86,7 @@ uv run python scripts/setup-obsidian.py /path/to/vault  # 明示的に指定
 
 ## 非自明な点
 
-- `pyproject.toml` にpytest、coverage、Ruffの設定がある。`setup.py`と型チェッカーの設定は存在しない。
+- `pyproject.toml` にpytest、coverage、Ruff、Pyright本番コードの設定がある。テストコードのPyright設定は`pyright-tests.json`にある。`setup.py`は存在しない。
 - テストは `sys.path.insert(0, ...)` でパッケージを参照しており、正規インストールを必要としない。
 - README には `.tact_history.json` による重複回避の記載があるが、実際のスキップ判定は `main.py` の `if not args.force and save_path.exists()` であり、履歴ファイルは書き込まれない。
 - 学期パターンの拡張は `classifier.py` の `SEMESTER_PATTERNS` が変更箇所。学期設定を環境変数では変更しない。

@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -14,9 +15,12 @@ assert SPEC is not None
 setup_obsidian = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(setup_obsidian)
+setup_obsidian = cast(Any, setup_obsidian)
 
 
-def test_build_updated_data_preserves_unrelated_settings_and_replaces_command(tmp_path):
+def test_build_updated_data_preserves_unrelated_settings_and_replaces_command(
+    tmp_path: Path,
+) -> None:
     generated = setup_obsidian.build_data_json(
         tmp_path / "project with 'quote'", tmp_path / "vault"
     )
@@ -48,7 +52,9 @@ def test_build_updated_data_preserves_unrelated_settings_and_replaces_command(tm
     )
 
 
-def test_write_json_atomically_creates_backup_only_when_content_changes(tmp_path):
+def test_write_json_atomically_creates_backup_only_when_content_changes(
+    tmp_path: Path,
+) -> None:
     destination = tmp_path / "data.json"
     destination.write_text('{"old": true}\n', encoding="utf-8")
 
@@ -73,7 +79,7 @@ def test_write_json_atomically_creates_backup_only_when_content_changes(tmp_path
     assert not (tmp_path / "data.json.bak").exists()
 
 
-def test_update_data_json_rejects_invalid_existing_json(tmp_path):
+def test_update_data_json_rejects_invalid_existing_json(tmp_path: Path) -> None:
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
     destination = plugin_dir / "data.json"
@@ -85,8 +91,8 @@ def test_update_data_json_rejects_invalid_existing_json(tmp_path):
 
 
 def test_download_plugin_skips_valid_file_and_atomically_replaces_invalid_file(
-    tmp_path,
-):
+    tmp_path: Path,
+) -> None:
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
     filename = "manifest.json"
@@ -117,7 +123,7 @@ def test_download_plugin_skips_valid_file_and_atomically_replaces_invalid_file(
         setup_obsidian.PLUGIN_SHA256[filename] = old_hash
 
 
-def test_download_plugin_removes_unverified_temporary_file(tmp_path):
+def test_download_plugin_removes_unverified_temporary_file(tmp_path: Path) -> None:
     plugin_dir = tmp_path / "plugin"
     response = io.BytesIO(b"tampered")
     filename = "manifest.json"
@@ -133,7 +139,9 @@ def test_download_plugin_removes_unverified_temporary_file(tmp_path):
     assert not (plugin_dir / filename).exists()
 
 
-def test_update_community_plugins_preserves_existing_entries_and_backups(tmp_path):
+def test_update_community_plugins_preserves_existing_entries_and_backups(
+    tmp_path: Path,
+) -> None:
     obsidian_dir = tmp_path / ".obsidian"
     obsidian_dir.mkdir()
     destination = obsidian_dir / "community-plugins.json"

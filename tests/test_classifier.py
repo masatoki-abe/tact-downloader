@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import TypedDict
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -15,16 +16,27 @@ FIXTURE = Path(__file__).parent / "fixtures" / "titles.json"
 FIXTURE_ANS = Path(__file__).parent / "fixtures" / "titles_ans.json"
 
 
-def load_titles():
+class TitleEntry(TypedDict):
+    site_id: str
+    title: str
+
+
+class SnapshotEntry(TitleEntry):
+    year: str
+    semester: str
+    course_name: str
+
+
+def load_titles() -> list[TitleEntry]:
     return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
-def load_expected():
+def load_expected() -> list[SnapshotEntry]:
     return json.loads(FIXTURE_ANS.read_text(encoding="utf-8"))
 
 
-def run_classify(entries):
-    results = []
+def run_classify(entries: list[TitleEntry]) -> list[SnapshotEntry]:
+    results: list[SnapshotEntry] = []
     for entry in entries:
         info = classify_site(entry["site_id"], entry["title"])
         results.append(
@@ -39,13 +51,13 @@ def run_classify(entries):
     return results
 
 
-def print_results(results):
+def print_results(results: list[SnapshotEntry]) -> None:
     for r in results:
         print(f"{r['year']:10s} {r['semester'] or '        ':8s} {r['course_name']}")
         print(f"    ID={r['site_id']} | title={r['title']}")
 
 
-def test_classifier_snapshot():
+def test_classifier_snapshot() -> None:
     entries = load_titles()
     results = run_classify(entries)
 
@@ -63,7 +75,7 @@ def test_classifier_snapshot():
     assert results == expected
 
 
-def test_supported_semester_formats():
+def test_supported_semester_formats() -> None:
     cases = [
         ("授業 (2025年度春3期/月2)", "春3期"),
         ("授業（2025年度秋学期/その他）", "秋学期"),
@@ -81,7 +93,7 @@ def test_supported_semester_formats():
         assert extract_semester(title) == expected
 
 
-def test_course_name_removes_only_recognized_semester_block():
+def test_course_name_removes_only_recognized_semester_block() -> None:
     assert classify_site("site", "2025年度 集中講義 (春A)").course_name == "集中講義"
     assert (
         classify_site("site", "2025年度 データ分析 (未知の期)").course_name

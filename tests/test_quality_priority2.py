@@ -1,5 +1,6 @@
 """優先度2のパス、ダウンロード、dry-run回帰テスト。"""
 
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -16,7 +17,7 @@ def test_rejects_empty_and_invalid_resource_paths():
             downloader.safe_relative_path(value)
 
 
-def test_sanitizes_names_and_keeps_vault_boundary(tmp_path):
+def test_sanitizes_names_and_keeps_vault_boundary(tmp_path: Path) -> None:
     with patch.object(downloader, "VAULT_ROOT", str(tmp_path)):
         assert downloader.safe_relative_path("a:b?*.txt") == "a_b__.txt"
         assert downloader.safe_relative_path("   ") == "unnamed_file"
@@ -26,7 +27,7 @@ def test_sanitizes_names_and_keeps_vault_boundary(tmp_path):
         )
 
 
-def test_rejects_symlink_outside_vault(tmp_path):
+def test_rejects_symlink_outside_vault(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
     outside.mkdir()
     link = tmp_path / "大学"
@@ -36,13 +37,13 @@ def test_rejects_symlink_outside_vault(tmp_path):
             downloader.safe_resource_path(link, "secret.txt")
 
 
-def _client_with_response(response):
+def _client_with_response(response: Mock) -> tuple[TACTClient, Mock]:
     session = Mock()
     session.get.return_value = response
     return TACTClient(session, "https://tact.example.test"), session
 
 
-def _ok_response(chunks):
+def _ok_response(chunks: object) -> Mock:
     response = Mock()
     response.status_code = 200
     response.is_redirect = False
@@ -51,7 +52,9 @@ def _ok_response(chunks):
     return response
 
 
-def test_interrupted_download_keeps_existing_file_and_removes_temp(tmp_path):
+def test_interrupted_download_keeps_existing_file_and_removes_temp(
+    tmp_path: Path,
+) -> None:
     def interrupted_chunks():
         yield b"partial"
         raise requests.ConnectionError("lost")
@@ -72,7 +75,9 @@ def test_interrupted_download_keeps_existing_file_and_removes_temp(tmp_path):
     session.get.assert_called_once()
 
 
-def test_replace_failure_removes_temp_and_preserves_existing_file(tmp_path):
+def test_replace_failure_removes_temp_and_preserves_existing_file(
+    tmp_path: Path,
+) -> None:
     response = _ok_response([b"new"])
     client, _ = _client_with_response(response)
     target = tmp_path / "file.txt"
@@ -88,7 +93,7 @@ def test_replace_failure_removes_temp_and_preserves_existing_file(tmp_path):
     assert list(tmp_path.glob(".*")) == []
 
 
-def test_download_rejects_external_url_without_request(tmp_path):
+def test_download_rejects_external_url_without_request(tmp_path: Path) -> None:
     session = Mock()
     client = TACTClient(session, "https://tact.example.test")
 
@@ -99,7 +104,7 @@ def test_download_rejects_external_url_without_request(tmp_path):
     session.get.assert_not_called()
 
 
-def test_dry_run_does_not_create_directories_in_obsidian(tmp_path):
+def test_dry_run_does_not_create_directories_in_obsidian(tmp_path: Path) -> None:
     from tact_downloader import obsidian_cmd
 
     info = classify_site("site", "2025年度 安全な授業 (春学期)")
@@ -123,7 +128,7 @@ def test_dry_run_does_not_create_directories_in_obsidian(tmp_path):
     client.download_resource.assert_not_called()
 
 
-def test_force_and_existing_file_behavior_in_obsidian(tmp_path):
+def test_force_and_existing_file_behavior_in_obsidian(tmp_path: Path) -> None:
     from tact_downloader import obsidian_cmd
 
     info = classify_site("site", "2025年度 安全な授業 (春学期)")
@@ -152,7 +157,9 @@ def test_force_and_existing_file_behavior_in_obsidian(tmp_path):
     )
 
 
-def test_common_download_service_aggregates_sites_and_continues(tmp_path):
+def test_common_download_service_aggregates_sites_and_continues(
+    tmp_path: Path,
+) -> None:
     from tact_downloader.downloader import download_sites
 
     first = classify_site("first", "2025年度 最初の授業 (春学期)")
@@ -176,7 +183,9 @@ def test_common_download_service_aggregates_sites_and_continues(tmp_path):
     assert client.get_site_resources.call_count == 2
 
 
-def test_common_download_service_treats_empty_resources_as_success(tmp_path):
+def test_common_download_service_treats_empty_resources_as_success(
+    tmp_path: Path,
+) -> None:
     from tact_downloader.downloader import download_sites
 
     info = classify_site("site", "2025年度 リソースなし (春学期)")
@@ -189,7 +198,9 @@ def test_common_download_service_treats_empty_resources_as_success(tmp_path):
     assert (result.succeeded, result.skipped, result.failed) == (0, 0, 0)
 
 
-def test_common_download_service_reports_invalid_resource_paths(tmp_path):
+def test_common_download_service_reports_invalid_resource_paths(
+    tmp_path: Path,
+) -> None:
     from tact_downloader.downloader import download_sites
 
     info = classify_site("site", "2025年度 不正な授業 (春学期)")
