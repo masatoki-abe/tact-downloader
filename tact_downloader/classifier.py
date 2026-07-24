@@ -42,7 +42,7 @@ class SiteInfo:
 
 def _normalize_text(text: str) -> str:
     """全角英数字を半角に変換する。"""
-    result = []
+    result: list[str] = []
     for c in text:
         code = ord(c)
         if 0xFF10 <= code <= 0xFF19:

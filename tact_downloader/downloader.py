@@ -1,10 +1,22 @@
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping, Protocol, Sequence
 
 from tact_downloader import DOWNLOAD_BASE, VAULT_ROOT
 from tact_downloader.classifier import SiteInfo
+from tact_downloader.models import ResourceRecord
+
+
+class DownloadClient(Protocol):
+    def get_site_resources(self, site_id: str) -> list[ResourceRecord]: ...
+
+    def download_resource(
+        self,
+        resource_url: str,
+        save_path: str,
+        expected_size: int | str | None = None,
+    ) -> str: ...
 
 
 @dataclass
@@ -35,7 +47,7 @@ def format_file_size(size: int) -> str:
 
 
 def download_sites(
-    client,
+    client: DownloadClient,
     site_infos: list[SiteInfo],
     *,
     force: bool = False,
@@ -144,7 +156,7 @@ def ensure_dir(path: Path) -> Path:
 
 def _sanitize_segment(segment: str) -> str:
     """ファイル・ディレクトリ名の1セグメントをサニタイズする。"""
-    if not isinstance(segment, str) or segment in {".", ".."}:
+    if segment in {".", ".."}:
         raise ValueError(f"不正なパスセグメントです: {segment!r}")
     if "/" in segment or "\\" in segment:
         raise ValueError(f"パスセグメントに区切り文字を含められません: {segment!r}")
@@ -158,7 +170,7 @@ def _sanitize_segment(segment: str) -> str:
 
 def _validate_relative_base(base: str) -> list[str]:
     """DOWNLOAD_BASEをvaultからの相対パスとして検証する。"""
-    if not isinstance(base, str) or not base:
+    if not base:
         raise ValueError("DOWNLOAD_BASEはvault内の相対パスで指定してください。")
     base_path = Path(base)
     if base_path.is_absolute() or re.match(r"^[A-Za-z]:[\\/]", base):
@@ -190,14 +202,14 @@ def safe_relative_path(relative_path: str) -> str:
     各セグメント（/区切り）を個別にサニタイズし、ディレクトリ階層を維持する。
     URLから抽出した相対パス（例: "week1/handout.pdf"）を想定。
     """
-    if not isinstance(relative_path, str) or not relative_path:
+    if not relative_path:
         raise ValueError("リソースパスが空です。")
     if relative_path.startswith(("/", "\\")) or re.match(
         r"^[A-Za-z]:[\\/]", relative_path
     ):
         raise ValueError(f"リソースパスに絶対パスは指定できません: {relative_path!r}")
 
-    segments = []
+    segments: list[str] = []
     for seg in relative_path.split("/"):
         if seg == "":
             continue
@@ -211,11 +223,15 @@ def safe_relative_path(relative_path: str) -> str:
     return "/".join(segments)
 
 
-def validate_resource_paths(directory: Path, resources: list[dict]) -> None:
+def validate_resource_paths(
+    directory: Path, resources: Sequence[Mapping[str, object]]
+) -> None:
     """サニタイズ後のリソース保存先の衝突を検出する。"""
     seen: dict[Path, str] = {}
     for resource in resources:
         relative_path = resource.get("relative_path", "")
+        if not isinstance(relative_path, str):
+            raise ValueError("リソースパスが不正です。")
         path = safe_resource_path(directory, relative_path)
         previous = seen.get(path)
         if previous is not None and previous != relative_path:

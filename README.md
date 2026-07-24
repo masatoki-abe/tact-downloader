@@ -53,6 +53,7 @@ TACTに学内ネットワークまたはVPN経由でアクセスできること�
 uv run pytest
 uv run pytest --cov=tact_downloader --cov=main --cov-branch
 uv run pyright
+uv run pyright --project pyright-tests.json
 uv run ruff check .
 uv run ruff format --check .
 npm exec --no -- prettier --check .
@@ -76,7 +77,7 @@ npm exec --no -- prettier --write .
 npm exec --no -- taplo format
 ```
 
-`pyright`はPython 3.10を対象に、`main.py`、`tact_downloader/`、`scripts/`、`tests/`の全Pythonファイルを`standard`モードで検査します。
+`pyright`はPython 3.10を対象に、`main.py`、`tact_downloader/`、`scripts/`を`strict`モードで検査します。`tests/`は`pyright-tests.json`を使用して`standard`モードで検査します。
 
 classifierの期待値を更新する場合は、内容を確認したうえで次を実行します。
 

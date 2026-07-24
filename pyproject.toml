@@ -18,9 +18,9 @@ package = false
 
 [tool.pyright]
 pythonVersion = "3.10"
-typeCheckingMode = "standard"
-include = ["main.py", "tact_downloader", "scripts", "tests"]
-exclude = [".venv", "node_modules", "**/__pycache__"]
+typeCheckingMode = "strict"
+include = ["main.py", "tact_downloader", "scripts"]
+exclude = [".venv", "node_modules", "tests", "**/__pycache__"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

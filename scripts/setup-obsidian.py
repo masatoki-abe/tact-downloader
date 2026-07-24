@@ -19,6 +19,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from typing import TypeAlias, cast
 
 SC_VERSION = "0.23.0"
 SC_DOWNLOAD_BASE = (
@@ -33,7 +34,11 @@ PLUGIN_SHA256 = {
 }
 COMMAND_ID = "tact-download-folder"
 
-DATA_JSON_TEMPLATE = {
+JsonScalar: TypeAlias = None | bool | int | float | str
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+JsonObject: TypeAlias = dict[str, JsonValue]
+
+DATA_JSON_TEMPLATE: JsonObject = {
     "settings_version": SC_VERSION,
     "debug": False,
     "obsidian_command_palette_prefix": "Execute: ",
@@ -69,7 +74,7 @@ def parse_env(project_root: Path) -> dict[str, str]:
     env_path = project_root / ".env"
     if not env_path.exists():
         return {}
-    env = {}
+    env: dict[str, str] = {}
     for line in env_path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -135,7 +140,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_data_json(project_root: Path, vault_root: Path) -> dict:
+def build_data_json(project_root: Path, vault_root: Path) -> JsonObject:
     sc_path = project_root / ".venv" / "bin" / "python"
     if not sc_path.exists():
         print(
@@ -148,7 +153,7 @@ def build_data_json(project_root: Path, vault_root: Path) -> dict:
     )
     working_dir = str(project_root)
 
-    data = dict(DATA_JSON_TEMPLATE)
+    data: JsonObject = dict(DATA_JSON_TEMPLATE)
     data["working_directory"] = working_dir
     data["shell_commands"] = [
         {
@@ -178,7 +183,7 @@ def build_data_json(project_root: Path, vault_root: Path) -> dict:
     return data
 
 
-def write_data_json(plugin_dir: Path, data: dict) -> None:
+def write_data_json(plugin_dir: Path, data: JsonObject) -> None:
     dest = plugin_dir / "data.json"
     write_json_atomically(dest, data)
     print("  [更新] data.json")
@@ -216,12 +221,15 @@ def write_text_atomically(dest: Path, content: str) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
-def build_updated_data(existing: dict, generated: dict) -> dict:
-    data = dict(existing)
+def build_updated_data(existing: JsonObject, generated: JsonObject) -> JsonObject:
+    data: JsonObject = dict(existing)
     commands = data.get("shell_commands", [])
     if not isinstance(commands, list):
         raise ValueError("data.json の shell_commands は配列である必要があります")
-    updated_command = generated["shell_commands"][0]
+    generated_commands = generated["shell_commands"]
+    if not isinstance(generated_commands, list) or not generated_commands:
+        raise ValueError("生成したshell_commandsが不正です")
+    updated_command = generated_commands[0]
     data["shell_commands"] = []
     found = False
     for command in commands:
@@ -237,7 +245,7 @@ def build_updated_data(existing: dict, generated: dict) -> dict:
     return data
 
 
-def update_data_json(plugin_dir: Path, generated: dict) -> None:
+def update_data_json(plugin_dir: Path, generated: JsonObject) -> None:
     dest = plugin_dir / "data.json"
     if dest.exists():
         try:
@@ -248,7 +256,7 @@ def update_data_json(plugin_dir: Path, generated: dict) -> None:
             raise ValueError(
                 "data.jsonのトップレベルはオブジェクトである必要があります"
             )
-        data = build_updated_data(existing, generated)
+        data = build_updated_data(cast(JsonObject, existing), generated)
     else:
         data = generated
     write_data_json(plugin_dir, data)
@@ -260,13 +268,16 @@ def update_community_plugins(vault_root: Path) -> None:
     if plugins_file.exists():
         try:
             with open(plugins_file, encoding="utf-8") as f:
-                plugins = json.load(f)
+                raw_plugins: object = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"community-plugins.jsonを読み込めません: {exc}") from exc
-        if not isinstance(plugins, list) or not all(
-            isinstance(item, str) for item in plugins
+        if not isinstance(raw_plugins, list) or not all(
+            isinstance(item, str) for item in cast(list[object], raw_plugins)
         ):
             raise ValueError("community-plugins.jsonは文字列配列である必要があります")
+        plugins = [
+            item for item in cast(list[object], raw_plugins) if isinstance(item, str)
+        ]
 
     if PLUGIN_ID not in plugins:
         plugins.append(PLUGIN_ID)

@@ -2,12 +2,14 @@ import os
 import re
 import tempfile
 import time
+from typing import cast
 from urllib.parse import quote, unquote, urljoin, urlparse
 
 import requests
 
 from tact_downloader import TACT_BASE_URL
 from tact_downloader.exceptions import AuthenticationError, DataError, NetworkError
+from tact_downloader.models import ResourceRecord, SiteRecord
 
 DEFAULT_TIMEOUT = (5, 30)
 MAX_RETRIES = 2
@@ -17,7 +19,9 @@ RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
 class TACTClient:
     """TACT (Sakai LMS) の /direct/ API にアクセスするクライアント。"""
 
-    def __init__(self, session: requests.Session, base_url: str = TACT_BASE_URL):
+    def __init__(
+        self, session: requests.Session, base_url: str = TACT_BASE_URL
+    ) -> None:
         self.session = session
         self.base_url = base_url.rstrip("/")
         parsed = urlparse(self.base_url)
@@ -58,7 +62,7 @@ class TACTClient:
         except AttributeError:
             pass
 
-    def _get(self, url: str, **kwargs) -> requests.Response:
+    def _get(self, url: str, *, stream: bool = False) -> requests.Response:
         """認証済みセッションでGETリクエストを送信する。
         セッション切れの場合は再認証を試みる。
         """
@@ -66,11 +70,22 @@ class TACTClient:
         current_url = url
         retry_count = 0
         redirect_count = 0
-        kwargs.setdefault("timeout", DEFAULT_TIMEOUT)
         while True:
             self._validate_url(current_url)
             try:
-                resp = self.session.get(current_url, allow_redirects=False, **kwargs)
+                if stream:
+                    resp = self.session.get(
+                        current_url,
+                        allow_redirects=False,
+                        timeout=DEFAULT_TIMEOUT,
+                        stream=True,
+                    )
+                else:
+                    resp = self.session.get(
+                        current_url,
+                        allow_redirects=False,
+                        timeout=DEFAULT_TIMEOUT,
+                    )
             except requests.RequestException as exc:
                 raise NetworkError(f"TACTへの通信に失敗しました: {exc}") from exc
             if resp.is_redirect or resp.is_permanent_redirect:
@@ -101,30 +116,45 @@ class TACTClient:
             raise NetworkError(f"TACT APIがHTTPエラーを返しました: {exc}") from exc
         return resp
 
-    def get_sites(self) -> list[dict]:
+    def get_sites(self) -> list[SiteRecord]:
         """受講中の全講義サイト一覧を取得する。"""
         url = f"{self.base_url}/direct/site.json?_limit=1000000"
         resp = self._get(url)
         try:
-            data = resp.json()
+            data: object = resp.json()
         except (ValueError, TypeError) as exc:
             self._close_response(resp)
             raise DataError("サイト一覧のJSONが不正です。") from exc
         finally:
             self._close_response(resp)
-        if not isinstance(data, dict) or not isinstance(
-            data.get("site_collection", []), list
-        ):
+        if not isinstance(data, dict):
             raise DataError("サイト一覧の形式が不正です。")
-        return data.get("site_collection", [])
+        typed_data = cast(dict[str, object], data)
+        sites: object = typed_data.get("site_collection", [])
+        if not isinstance(sites, list):
+            raise DataError("サイト一覧項目の形式が不正です。")
+        result: list[SiteRecord] = []
+        for raw_site in cast(list[object], sites):
+            if not isinstance(raw_site, dict):
+                raise DataError("サイト一覧項目の形式が不正です。")
+            site = cast(dict[str, object], raw_site)
+            record: SiteRecord = {}
+            for key in ("entityId", "id", "entityTitle", "title"):
+                value = site.get(key)
+                if value is not None:
+                    if not isinstance(value, str):
+                        raise DataError("サイト一覧項目の形式が不正です。")
+                    record[key] = value
+            result.append(record)
+        return result
 
-    def get_site_contents(self, site_id: str) -> dict:
+    def get_site_contents(self, site_id: str) -> dict[str, object]:
         """指定したサイトのリソース一覧を取得する。"""
         encoded_site_id = quote(str(site_id), safe="")
         url = f"{self.base_url}/direct/content/site/{encoded_site_id}.json"
         resp = self._get(url)
         try:
-            data = resp.json()
+            data: object = resp.json()
         except (ValueError, TypeError) as exc:
             self._close_response(resp)
             raise DataError("サイトコンテンツのJSONが不正です。") from exc
@@ -132,19 +162,22 @@ class TACTClient:
             self._close_response(resp)
         if not isinstance(data, dict):
             raise DataError("サイトコンテンツの形式が不正です。")
-        return data
+        return cast(dict[str, object], data)
 
-    def get_site_resources(self, site_id: str) -> list[dict]:
+    def get_site_resources(self, site_id: str) -> list[ResourceRecord]:
         """指定したサイトのダウンロード可能なリソースURL一覧を取得する。"""
         data = self.get_site_contents(site_id)
-        contents = data.get("content_collection", [])
+        contents: object = data.get("content_collection", [])
         if not isinstance(contents, list):
             raise DataError("サイトコンテンツ一覧の形式が不正です。")
-        resources = []
-        for item in contents:
-            if not isinstance(item, dict):
+        resources: list[ResourceRecord] = []
+        for raw_item in cast(list[object], contents):
+            if not isinstance(raw_item, dict):
                 raise DataError("サイトコンテンツ項目の形式が不正です。")
+            item = cast(dict[str, object], raw_item)
             url = item.get("url", "")
+            if not isinstance(url, str):
+                continue
             if url and not url.endswith("/"):
                 parsed = urlparse(url)
                 path = unquote(parsed.path.rstrip("/"))
@@ -154,13 +187,19 @@ class TACTClient:
                     relative_path = match.group(1)
                 else:
                     relative_path = path.rsplit("/", 1)[-1]
+                item_type = item.get("type", "resource")
+                item_size = item.get("size")
+                if not isinstance(item_type, str):
+                    item_type = "resource"
+                if not isinstance(item_size, (int, str)) and item_size is not None:
+                    item_size = None
                 resources.append(
                     {
                         "url": url,
                         "name": relative_path.rsplit("/", 1)[-1],
                         "relative_path": relative_path,
-                        "type": item.get("type", "resource"),
-                        "size": item.get("size"),
+                        "type": item_type,
+                        "size": item_size,
                     }
                 )
         return resources

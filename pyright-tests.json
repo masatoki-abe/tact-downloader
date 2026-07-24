@@ -1,0 +1,8 @@
+{
+  "extends": "./pyproject.toml",
+  "include": ["tests"],
+  "exclude": [".venv", "node_modules", "**/__pycache__"],
+  "extraPaths": ["."],
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.10"
+}

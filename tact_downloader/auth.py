@@ -3,6 +3,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import requests
 
@@ -10,29 +11,56 @@ from tact_downloader import COOKIE_FILE
 from tact_downloader.client import DEFAULT_TIMEOUT
 from tact_downloader.exceptions import AuthenticationError, NetworkError
 
+if TYPE_CHECKING:
+    from playwright.sync_api import Page
 
-def _load_saved_cookies(cookie_path):
+
+class SavedCookie(TypedDict):
+    name: str
+    value: str
+    domain: str
+    path: str
+
+
+def _load_saved_cookies(cookie_path: Path) -> list[SavedCookie]:
     """保存済みCookieを検証して返す。不正なファイルは明示的に失敗させる。"""
     try:
         os.chmod(cookie_path, 0o600)
         with open(cookie_path) as f:
-            cookies = json.load(f)
+            cookies: object = json.load(f)
     except (json.JSONDecodeError, OSError) as exc:
         raise ValueError(f"保存Cookieを読み込めません: {exc}") from exc
 
     if not isinstance(cookies, list):
         raise ValueError("保存Cookieの形式が不正です（配列が必要です）")
-    for cookie in cookies:
+    validated: list[SavedCookie] = []
+    for raw_cookie in cast(list[object], cookies):
+        if not isinstance(raw_cookie, dict):
+            raise ValueError("保存Cookieの形式が不正です")
+        cookie = cast(dict[str, object], raw_cookie)
+        name = cookie.get("name")
+        value = cookie.get("value")
+        domain = cookie.get("domain", "")
+        path = cookie.get("path", "/")
         if (
-            not isinstance(cookie, dict)
-            or not isinstance(cookie.get("name"), str)
-            or not isinstance(cookie.get("value"), str)
+            not isinstance(name, str)
+            or not isinstance(value, str)
+            or not isinstance(domain, str)
+            or not isinstance(path, str)
         ):
             raise ValueError("保存Cookieの形式が不正です")
-    return cookies
+        validated.append(
+            {
+                "name": name,
+                "value": value,
+                "domain": domain,
+                "path": path,
+            }
+        )
+    return validated
 
 
-def _save_cookies(cookie_path, cookies):
+def _save_cookies(cookie_path: Path, cookies: list[dict[str, str]]) -> None:
     """Cookieを所有者専用の一時ファイルへ保存して原子的に置換する。"""
     cookie_path = Path(cookie_path)
     cookie_path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,16 +194,16 @@ def login(
 
 
 def _login_with_browser(
-    session,
-    base_url,
-    cookie_path,
-    email,
-    password,
-    totp_secret,
-    auto_mode,
-    silent,
-    verbose,
-):
+    session: requests.Session,
+    base_url: str,
+    cookie_path: Path,
+    email: str | None,
+    password: str | None,
+    totp_secret: str | None,
+    auto_mode: bool,
+    silent: bool,
+    verbose: bool,
+) -> requests.Session:
     """Playwrightによるログイン処理。ログイン選択部分から分離している。"""
     try:
         from playwright.sync_api import sync_playwright
@@ -200,7 +228,7 @@ def _login_with_browser(
                 f"{base_url}/portal", wait_until="domcontentloaded", timeout=30000
             )
 
-            if auto_mode:
+            if auto_mode and email is not None and password is not None:
                 try:
                     _auto_fill_login(page, email, password, totp_secret, silent)
                 except Exception as e:
@@ -213,7 +241,32 @@ def _login_with_browser(
                 try:
                     if '"loggedIn": true' in page.content():
                         cookies = context.cookies(base_url)
-                        _save_cookies(cookie_path, cookies)
+                        saved_cookies: list[dict[str, str]] = []
+                        for cookie in cookies:
+                            name = cookie.get("name")
+                            value = cookie.get("value")
+                            domain = cookie.get("domain")
+                            path = cookie.get("path")
+                            if not all(
+                                isinstance(item, str)
+                                for item in (name, value, domain, path)
+                            ):
+                                raise AuthenticationError(
+                                    "Playwrightが返したCookieの形式が不正です。"
+                                )
+                            assert isinstance(name, str)
+                            assert isinstance(value, str)
+                            assert isinstance(domain, str)
+                            assert isinstance(path, str)
+                            saved_cookies.append(
+                                {
+                                    "name": name,
+                                    "value": value,
+                                    "domain": domain,
+                                    "path": path,
+                                }
+                            )
+                        _save_cookies(cookie_path, saved_cookies)
                         if verbose:
                             print(
                                 f"      Cookie {len(cookies)} 個を保存: {COOKIE_FILE}"
@@ -230,6 +283,10 @@ def _login_with_browser(
                                 raise AuthenticationError(
                                     "Playwrightが返したCookieの形式が不正です。"
                                 )
+                            assert isinstance(name, str)
+                            assert isinstance(value, str)
+                            assert isinstance(domain, str)
+                            assert isinstance(path, str)
                             session.cookies.set(
                                 name,
                                 value,
@@ -264,7 +321,9 @@ def _login_with_browser(
     raise AuthenticationError("ログインに失敗しました。")
 
 
-def _auto_fill_login(page, email, password, totp_secret, silent):
+def _auto_fill_login(
+    page: "Page", email: str, password: str, totp_secret: str | None, silent: bool
+) -> None:
     """全ログインフローを順に実行。
 
     画面遷移:
@@ -289,7 +348,7 @@ def _auto_fill_login(page, email, password, totp_secret, silent):
 # ============================================================
 
 
-def _tact_portal_login(page):
+def _tact_portal_login(page: "Page") -> None:
     """【1: TACTポータル】「Federation Login」リンクをクリック。"""
     with page.expect_navigation(timeout=30000):
         page.locator("a#loginLink1").first.click(timeout=5000)
@@ -300,7 +359,7 @@ def _tact_portal_login(page):
 # ============================================================
 
 
-def _ms_email(page, email):
+def _ms_email(page: "Page", email: str) -> None:
     """【2: MS メールアドレス入力画面】"""
     page.locator('input[type="email"]').first.wait_for(timeout=30000)
     page.locator('input[type="email"]').first.fill(email)
@@ -314,7 +373,7 @@ def _ms_email(page, email):
 # ============================================================
 
 
-def _ms_password(page, password):
+def _ms_password(page: "Page", password: str) -> None:
     """【3: MS パスワード入力画面】"""
     page.locator('input[type="password"]').first.wait_for(timeout=30000)
     page.locator('input[type="password"]').first.fill(password)
@@ -327,7 +386,7 @@ def _ms_password(page, password):
 # ============================================================
 
 
-def _ms_totp(page, totp_secret):
+def _ms_totp(page: "Page", totp_secret: str) -> None:
     """【4: MS TOTP認証画面】コード自動生成→Enter。
 
     プッシュ通知画面の場合は「別の方法」→ TOTP選択 を辿る。
@@ -356,7 +415,7 @@ def _ms_totp(page, totp_secret):
 # ============================================================
 
 
-def _ms_stay_signed_in(page):
+def _ms_stay_signed_in(page: "Page") -> None:
     """【5: MS サインイン維持画面】→ いいえ"""
     try:
         page.locator("#KmsiCheckboxField").first.wait_for(timeout=10000)
@@ -370,7 +429,7 @@ def _ms_stay_signed_in(page):
 # ============================================================
 
 
-def _thers_consent(page):
+def _thers_consent(page: "Page") -> None:
     """【6: 機構同意画面】→ 同意"""
     page.locator('input[value="同意"]').first.wait_for(timeout=60000)
     page.locator('input[value="同意"]').first.click(timeout=5000)

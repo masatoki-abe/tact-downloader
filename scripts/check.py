@@ -20,6 +20,7 @@ def main() -> int:
     run(["npm", "exec", "--no", "--", "prettier", "--check", "."])
     run(["npm", "exec", "--no", "--", "taplo", "format", "--check"])
     run([*uv, "run", "pyright"])
+    run([*uv, "run", "pyright", "--project", "pyright-tests.json"])
     run([sys.executable, "-m", "ruff", "format", "--check", "."])
     run([sys.executable, "-m", "ruff", "check", "."])
     run(

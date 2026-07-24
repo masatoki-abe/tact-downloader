@@ -19,8 +19,16 @@ from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
 
 # Re-exported for callers that previously patched this module-level helper.
-from tact_downloader.downloader import build_download_path, download_sites  # noqa: F401
+from tact_downloader.downloader import build_download_path as _build_download_path
+from tact_downloader.downloader import download_sites
 from tact_downloader.exceptions import TACTError
+
+__all__ = ["build_download_path", "download_sites"]
+
+
+def build_download_path(info: SiteInfo) -> Path:
+    """ダウンロード先構築関数を後方互換のため再公開する。"""
+    return _build_download_path(info)
 
 
 def parse_scope(folder_path: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
@@ -58,7 +66,7 @@ def filter_sites(
     course_name: Optional[str],
 ) -> list[SiteInfo]:
     """スコープに合致するサイトのみを返す。"""
-    result = []
+    result: list[SiteInfo] = []
     for info in site_infos:
         if year and info.year != year:
             continue
