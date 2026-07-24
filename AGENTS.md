@@ -29,7 +29,7 @@ uv run python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--forc
   uv run python scripts/check.py
   ```
 
-- コミット前フックの初回設定: `uv run pre-commit install --hook-type pre-commit`
+- コミット前フックの初回設定: `uv run prek install`
 - 完全検査は `uv run --locked python scripts/check.py` で実行する。PyrightはPython 3.10を対象に、本番コードとテストコードを`strict`モードで検査する。Node依存は初回セットアップ時に `npm ci` で導入する。
 
 ## セットアップ

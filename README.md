@@ -66,10 +66,10 @@ uv run python scripts/check.py
 ```bash
 uv sync
 npm ci
-uv run pre-commit install --hook-type pre-commit
+uv run prek install
 ```
 
-以後の`git commit`では、lockファイルの整合性、Prettier、Taplo、Ruff、全テスト、branch coverageを自動的に確認します。いずれかが失敗した場合、コミットは作成されません。フォーマットの自動修正は行わないため、必要に応じて次を先に実行してください。
+以後の`git commit`では、`prek`がlockファイルの整合性、Prettier、Taplo、Ruff、全テスト、branch coverageを自動的に確認します。いずれかが失敗した場合、コミットは作成されません。フォーマットの自動修正は行わないため、必要に応じて次を先に実行してください。
 
 ```bash
 uv run ruff format .

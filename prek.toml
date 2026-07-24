@@ -1,0 +1,13 @@
+default_install_hook_types = ["pre-commit"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "full-quality-check"
+name = "Full quality check"
+entry = "uv run --locked python scripts/check.py"
+language = "system"
+pass_filenames = false
+always_run = true
+stages = ["pre-commit"]
