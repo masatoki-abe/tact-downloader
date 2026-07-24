@@ -24,11 +24,12 @@ uv run python main.py [-v] [--list | --all | --site SITE_ID] [--dry-run] [--forc
   npm exec --no -- prettier --check .
   npm exec --no -- taplo format --check
   uv run pytest --cov=tact_downloader --cov=main --cov-branch
+  uv run pyright
   uv run python scripts/check.py
   ```
 
 - コミット前フックの初回設定: `uv run pre-commit install --hook-type pre-commit`
-- 完全検査は `uv run --locked python scripts/check.py` で実行する。pyrightは導入済みだが、初期段階では実行しない。Node依存は初回セットアップ時に `npm ci` で導入する。
+- 完全検査は `uv run --locked python scripts/check.py` で実行する。PyrightはPython 3.10を対象に、全Pythonファイルを`standard`モードで検査する。Node依存は初回セットアップ時に `npm ci` で導入する。
 
 ## セットアップ
 

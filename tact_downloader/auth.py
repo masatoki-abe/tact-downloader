@@ -219,11 +219,22 @@ def _login_with_browser(
                                 f"      Cookie {len(cookies)} 個を保存: {COOKIE_FILE}"
                             )
                         for c in cookies:
+                            name = c.get("name")
+                            value = c.get("value")
+                            domain = c.get("domain")
+                            path = c.get("path")
+                            if not all(
+                                isinstance(item, str)
+                                for item in (name, value, domain, path)
+                            ):
+                                raise AuthenticationError(
+                                    "Playwrightが返したCookieの形式が不正です。"
+                                )
                             session.cookies.set(
-                                c["name"],
-                                c["value"],
-                                domain=c["domain"],
-                                path=c["path"],
+                                name,
+                                value,
+                                domain=domain,
+                                path=path,
                             )
                         if not silent:
                             print("ログイン成功")

@@ -189,7 +189,7 @@ def write_json_atomically(dest: Path, data: object) -> None:
     old_content = dest.read_text(encoding="utf-8") if dest.exists() else None
     if old_content == content:
         return
-    if dest.exists():
+    if old_content is not None:
         write_text_atomically(dest.with_name(f"{dest.name}.bak"), old_content)
     write_text_atomically(dest, content)
 

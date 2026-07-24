@@ -19,6 +19,7 @@ def main() -> int:
     run([*uv, "lock", "--check"])
     run(["npm", "exec", "--no", "--", "prettier", "--check", "."])
     run(["npm", "exec", "--no", "--", "taplo", "format", "--check"])
+    run([*uv, "run", "pyright"])
     run([sys.executable, "-m", "ruff", "format", "--check", "."])
     run([sys.executable, "-m", "ruff", "check", "."])
     run(

@@ -10,6 +10,7 @@ import pytest
 
 SCRIPT_PATH = Path(__file__).parents[1] / "scripts" / "setup-obsidian.py"
 SPEC = importlib.util.spec_from_file_location("setup_obsidian", SCRIPT_PATH)
+assert SPEC is not None
 setup_obsidian = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(setup_obsidian)
@@ -98,8 +99,6 @@ def test_download_plugin_skips_valid_file_and_atomically_replaces_invalid_file(
         destination.write_bytes(b"old plugin")
 
         response = io.BytesIO(expected)
-        response.__enter__ = lambda: response
-        response.__exit__ = lambda *args: None
         with (
             patch.object(setup_obsidian, "PLUGIN_FILES", [filename]),
             patch.object(
@@ -121,8 +120,6 @@ def test_download_plugin_skips_valid_file_and_atomically_replaces_invalid_file(
 def test_download_plugin_removes_unverified_temporary_file(tmp_path):
     plugin_dir = tmp_path / "plugin"
     response = io.BytesIO(b"tampered")
-    response.__enter__ = lambda: response
-    response.__exit__ = lambda *args: None
     filename = "manifest.json"
 
     with (
