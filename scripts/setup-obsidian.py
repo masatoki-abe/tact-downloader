@@ -183,6 +183,32 @@ def build_data_json(project_root: Path, vault_root: Path) -> JsonObject:
     return data
 
 
+def find_plugin_dirs(vault_root: Path) -> list[Path]:
+    """Find every directory containing this plugin, including legacy names."""
+    plugins_root = vault_root / ".obsidian" / "plugins"
+    canonical_dir = plugins_root / PLUGIN_ID
+    plugin_dirs: list[Path] = []
+    if canonical_dir.is_dir():
+        plugin_dirs.append(canonical_dir)
+    if not plugins_root.is_dir():
+        return plugin_dirs
+
+    for candidate in sorted(plugins_root.iterdir()):
+        if not candidate.is_dir() or candidate == canonical_dir:
+            continue
+        manifest_path = candidate / "manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(manifest, dict)
+            and cast(dict[str, object], manifest).get("id") == PLUGIN_ID
+        ):
+            plugin_dirs.append(candidate)
+    return plugin_dirs
+
+
 def write_data_json(plugin_dir: Path, data: JsonObject) -> None:
     dest = plugin_dir / "data.json"
     write_json_atomically(dest, data)
@@ -315,7 +341,14 @@ def main() -> None:
     # Step 2: write data.json
     print("Step 2/3: data.json を生成")
     data = build_data_json(project_root, vault_root)
-    update_data_json(plugin_dir, data)
+    plugin_dirs = find_plugin_dirs(vault_root)
+    for directory in plugin_dirs:
+        update_data_json(directory, data)
+    if len(plugin_dirs) > 1:
+        print(
+            "警告: 同じ Shell Commands プラグインが複数のフォルダに存在するため、"
+            "設定をすべて更新しました。不要な重複フォルダは手動で削除してください。"
+        )
     print()
 
     # Step 3: update community-plugins.json

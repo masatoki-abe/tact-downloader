@@ -90,6 +90,19 @@ def test_update_data_json_rejects_invalid_existing_json(tmp_path: Path) -> None:
     assert destination.read_text(encoding="utf-8") == "not json"
 
 
+def test_find_plugin_dirs_includes_legacy_directory_name(tmp_path: Path) -> None:
+    plugins_root = tmp_path / ".obsidian" / "plugins"
+    canonical_dir = plugins_root / setup_obsidian.PLUGIN_ID
+    legacy_dir = plugins_root / "shell-commands"
+    canonical_dir.mkdir(parents=True)
+    legacy_dir.mkdir()
+    (legacy_dir / "manifest.json").write_text(
+        json.dumps({"id": setup_obsidian.PLUGIN_ID}), encoding="utf-8"
+    )
+
+    assert setup_obsidian.find_plugin_dirs(tmp_path) == [canonical_dir, legacy_dir]
+
+
 def test_download_plugin_skips_valid_file_and_atomically_replaces_invalid_file(
     tmp_path: Path,
 ) -> None:
