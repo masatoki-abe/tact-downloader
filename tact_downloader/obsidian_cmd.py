@@ -19,8 +19,13 @@ from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
 
 # Re-exported for callers that previously patched this module-level helper.
-from tact_downloader.downloader import build_download_path as _build_download_path
-from tact_downloader.downloader import download_sites
+from tact_downloader.downloader import (
+    build_download_path as _build_download_path,
+)
+from tact_downloader.downloader import (
+    download_assignment_sites,
+    download_sites,
+)
 from tact_downloader.exceptions import TACTError
 
 __all__ = ["build_download_path", "download_sites"]
@@ -49,7 +54,7 @@ def parse_scope(folder_path: str) -> tuple[Optional[str], Optional[str], Optiona
         print(f"  期待されるベースパス = {vault_base}")
         sys.exit(1)
 
-    parts = [p for p in relative.parts if p not in {"TACTリソース"}]
+    parts = [p for p in relative.parts if p not in {"TACTリソース", "TACT課題"}]
     parts = parts[:3]
 
     year: Optional[str] = parts[0] if len(parts) >= 1 else None
@@ -86,6 +91,17 @@ def download_resources(
 ) -> tuple[int, int, int]:
     """1サイトを共通ダウンロードサービスへ委譲する。"""
     result = download_sites(client, [info], force=force, dry_run=dry_run)
+    return (result.succeeded, result.skipped, result.failed)
+
+
+def download_assignments(
+    client: TACTClient,
+    info: SiteInfo,
+    force: bool = False,
+    dry_run: bool = False,
+) -> tuple[int, int, int]:
+    """1サイトの課題を共通ダウンロードサービスへ委譲する。"""
+    result = download_assignment_sites(client, [info], force=force, dry_run=dry_run)
     return (result.succeeded, result.skipped, result.failed)
 
 
@@ -152,11 +168,11 @@ def main() -> int:
         print(f"{info.year} {sem_str} {info.course_name}")
 
     def show_empty(_info: SiteInfo) -> None:
-        print("  リソースなし")
+        print("  対象データなし")
 
     def show_resource(status: str, rel: str, detail: str | None) -> None:
         if status == "site_failed":
-            print(f"  エラー: リソース取得失敗 - {detail}")
+            print(f"  エラー: 一覧取得失敗 - {detail}")
         elif status == "skipped":
             print(f"  [スキップ] {rel}")
         elif status == "dry_run":
@@ -167,7 +183,7 @@ def main() -> int:
             print(f"  [DL中] {rel} ... 失敗 - {detail}")
 
     try:
-        result = download_sites(
+        resource_result = download_sites(
             client,
             targets,
             force=args.force,
@@ -176,6 +192,16 @@ def main() -> int:
             on_empty=show_empty,
             on_resource=show_resource,
         )
+        assignment_result = download_assignment_sites(
+            client,
+            targets,
+            force=args.force,
+            dry_run=args.dry_run,
+            on_site=show_site,
+            on_empty=show_empty,
+            on_resource=show_resource,
+        )
+        result = resource_result + assignment_result
     except ValueError as e:
         print(f"エラー: 保存先パスが不正です - {e}")
         return 1

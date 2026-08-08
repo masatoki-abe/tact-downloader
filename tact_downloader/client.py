@@ -9,11 +9,119 @@ import requests
 
 from tact_downloader import TACT_BASE_URL
 from tact_downloader.exceptions import AuthenticationError, DataError, NetworkError
-from tact_downloader.models import ResourceRecord, SiteRecord
+from tact_downloader.models import (
+    AssignmentRecord,
+    AttachmentRecord,
+    ResourceRecord,
+    SiteRecord,
+    SubmissionRecord,
+)
 
 DEFAULT_TIMEOUT = (5, 30)
 MAX_RETRIES = 2
 RETRYABLE_STATUS_CODES = {429, 502, 503, 504}
+
+
+def _string_value(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _bool_value(value: object) -> bool:
+    return value if isinstance(value, bool) else False
+
+
+def _scalar_value(value: object) -> str | int | float | None:
+    if isinstance(value, (str, int, float)) or value is None:
+        return value
+    return None
+
+
+def _parse_attachments(value: object, base_url: str) -> list[AttachmentRecord]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise DataError("課題添付一覧の形式が不正です。")
+    result: list[AttachmentRecord] = []
+    for raw_attachment in cast(list[object], value):
+        if not isinstance(raw_attachment, dict):
+            raise DataError("課題添付項目の形式が不正です。")
+        attachment = cast(dict[str, object], raw_attachment)
+        name = attachment.get("name")
+        url = attachment.get("url")
+        if not isinstance(name, str) or not isinstance(url, str):
+            raise DataError("課題添付項目の名前またはURLが不正です。")
+        if not urlparse(url).netloc:
+            url = urljoin(base_url.rstrip("/") + "/", url)
+        size = attachment.get("size")
+        if not isinstance(size, (int, str)) and size is not None:
+            size = None
+        item_type = attachment.get("type", "")
+        result.append(
+            {
+                "name": name,
+                "url": url,
+                "size": size,
+                "type": item_type if isinstance(item_type, str) else "",
+            }
+        )
+    return result
+
+
+def _parse_submissions(value: object, base_url: str) -> list[SubmissionRecord]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise DataError("提出一覧の形式が不正です。")
+    result: list[SubmissionRecord] = []
+    for raw_submission in cast(list[object], value):
+        if not isinstance(raw_submission, dict):
+            raise DataError("提出項目の形式が不正です。")
+        submission = cast(dict[str, object], raw_submission)
+        record: SubmissionRecord = {}
+        for key in (
+            "id",
+            "dateSubmitted",
+            "status",
+            "grade",
+            "feedbackText",
+            "feedbackComment",
+        ):
+            item = submission.get(key)
+            if item is not None:
+                if not isinstance(item, str):
+                    raise DataError("提出項目の文字列フィールドが不正です。")
+                record[key] = item
+        for key in (
+            "submitted",
+            "userSubmission",
+            "graded",
+            "returned",
+            "draft",
+            "late",
+        ):
+            item = submission.get(key)
+            if item is not None:
+                if not isinstance(item, bool):
+                    raise DataError("提出項目の真偽値フィールドが不正です。")
+                record[key] = item
+        submitted_text = submission.get("submittedText")
+        if submitted_text is not None:
+            if not isinstance(submitted_text, str):
+                raise DataError("提出本文の形式が不正です。")
+            record["submittedText"] = submitted_text
+        epoch = submission.get("dateSubmittedEpochSeconds")
+        if epoch is not None:
+            if not isinstance(epoch, (int, float)):
+                raise DataError("提出日時の形式が不正です。")
+            record["dateSubmittedEpochSeconds"] = epoch
+        record["submittedAttachments"] = _parse_attachments(
+            submission.get("submittedAttachments"), base_url
+        )
+        record["feedbackAttachments"] = _parse_attachments(
+            submission.get("feedbackAttachments"), base_url
+        )
+        result.append(record)
+    return result
 
 
 class TACTClient:
@@ -203,6 +311,61 @@ class TACTClient:
                     }
                 )
         return resources
+
+    def get_site_assignments(self, site_id: str) -> list[AssignmentRecord]:
+        """指定サイトの課題と、現在の利用者に表示される提出情報を取得する。"""
+        encoded_site_id = quote(str(site_id), safe="")
+        url = f"{self.base_url}/direct/assignment/site/{encoded_site_id}.json"
+        resp = self._get(url)
+        try:
+            data: object = resp.json()
+        except (ValueError, TypeError) as exc:
+            self._close_response(resp)
+            raise DataError("課題一覧のJSONが不正です。") from exc
+        finally:
+            self._close_response(resp)
+        if not isinstance(data, dict):
+            raise DataError("課題一覧の形式が不正です。")
+        typed_data = cast(dict[str, object], data)
+        raw_assignments = typed_data.get("assignment_collection", [])
+        if not isinstance(raw_assignments, list):
+            raise DataError("課題一覧項目の形式が不正です。")
+
+        assignments: list[AssignmentRecord] = []
+        for raw_assignment in cast(list[object], raw_assignments):
+            if not isinstance(raw_assignment, dict):
+                raise DataError("課題項目の形式が不正です。")
+            assignment = cast(dict[str, object], raw_assignment)
+            assignment_id = assignment.get("id", assignment.get("entityId"))
+            title = assignment.get("title", assignment.get("entityTitle"))
+            if not isinstance(assignment_id, str) or not isinstance(title, str):
+                raise DataError("課題項目のIDまたはタイトルが不正です。")
+
+            assignments.append(
+                {
+                    "id": assignment_id,
+                    "title": title,
+                    "instructions": _string_value(assignment.get("instructions")),
+                    "status": _string_value(assignment.get("status")),
+                    "draft": _bool_value(assignment.get("draft")),
+                    "openTimeString": _string_value(assignment.get("openTimeString")),
+                    "dueTimeString": _string_value(assignment.get("dueTimeString")),
+                    "dropDeadTimeString": _string_value(
+                        assignment.get("dropDeadTimeString")
+                    ),
+                    "closeTimeString": _string_value(assignment.get("closeTimeString")),
+                    "submissionType": _string_value(assignment.get("submissionType")),
+                    "gradeScale": _string_value(assignment.get("gradeScale")),
+                    "maxGradePoint": _scalar_value(assignment.get("maxGradePoint")),
+                    "attachments": _parse_attachments(
+                        assignment.get("attachments"), self.base_url
+                    ),
+                    "submissions": _parse_submissions(
+                        assignment.get("submissions"), self.base_url
+                    ),
+                }
+            )
+        return assignments
 
     def download_resource(
         self, resource_url: str, save_path: str, expected_size: int | str | None = None

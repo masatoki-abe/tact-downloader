@@ -15,6 +15,7 @@ def fake_client(sites: list[dict[str, str]]) -> Mock:
     client = Mock()
     client.get_sites.return_value = sites
     client.get_site_resources.return_value = []
+    client.get_site_assignments.return_value = []
     return client
 
 

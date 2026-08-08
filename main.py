@@ -17,7 +17,9 @@ from tact_downloader.auth import login
 from tact_downloader.classifier import SiteInfo, classify_site
 from tact_downloader.client import TACTClient
 from tact_downloader.downloader import (
+    build_assignment_path,
     build_download_path,
+    download_assignment_sites,
     download_sites,
 )
 from tact_downloader.exceptions import TACTError
@@ -91,6 +93,7 @@ def main() -> int:
             print(f"    学期   : {info.semester or '(未検出)'}")
             print(f"    授業名 : {info.course_name}")
             print(f"    DL先   : {build_download_path(info)}")
+            print(f"    課題先 : {build_assignment_path(info)}")
             print()
         return 0
 
@@ -154,11 +157,11 @@ def main() -> int:
         print(f"  DL先  : {build_download_path(info)}")
 
     def show_empty(_info: SiteInfo) -> None:
-        print("  リソースが見つかりませんでした。")
+        print("  対象データが見つかりませんでした。")
 
     def show_resource(status: str, rel: str, detail: str | None) -> None:
         if status == "site_failed":
-            print(f"  エラー: リソース一覧の取得に失敗しました - {detail}")
+            print(f"  エラー: 一覧の取得に失敗しました - {detail}")
         elif status == "skipped":
             print(f"    [スキップ] {rel}")
         elif status == "dry_run":
@@ -168,9 +171,9 @@ def main() -> int:
         else:
             print(f"    [失敗]     {rel} - {detail}")
 
-    # ダウンロード実行
+    # リソースと課題をダウンロード
     try:
-        result = download_sites(
+        resource_result = download_sites(
             client,
             targets,
             force=args.force,
@@ -179,6 +182,16 @@ def main() -> int:
             on_empty=show_empty,
             on_resource=show_resource,
         )
+        assignment_result = download_assignment_sites(
+            client,
+            targets,
+            force=args.force,
+            dry_run=args.dry_run,
+            on_site=show_site,
+            on_empty=show_empty,
+            on_resource=show_resource,
+        )
+        result = resource_result + assignment_result
     except ValueError as e:
         print(f"エラー: サイトの保存先パスが不正です - {e}")
         return 1
