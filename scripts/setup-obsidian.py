@@ -33,6 +33,7 @@ PLUGIN_SHA256 = {
     "styles.css": "3bd8380e5aa53fc447ea6a4c14ddfb94198f1a6d003e6e5f994b459cf9684c53",
 }
 COMMAND_ID = "tact-download-folder"
+CUSTOM_SHELL_ID = "nixos-zsh"
 
 JsonScalar: TypeAlias = None | bool | int | float | str
 JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -140,20 +141,63 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_data_json(project_root: Path, vault_root: Path) -> JsonObject:
+def _resolve_shell() -> str:
+    for candidate in ("/run/current-system/sw/bin/zsh", "/run/current-system/sw/bin/bash"):
+        if Path(candidate).exists():
+            return candidate
+    for name in ("zsh", "bash", "sh"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return "/run/current-system/sw/bin/bash"
+
+
+def _build_custom_shell(binary_path: str) -> JsonObject:
+    return {
+        "id": CUSTOM_SHELL_ID,
+        "name": "NixOS Zsh",
+        "description": "NixOS system zsh for Shell Commands",
+        "binary_path": binary_path,
+        "shell_arguments": ["-c", "{{!shell_command_content}}"],
+        "host_platform": "linux",
+        "host_platform_configurations": {},
+        "shell_platform": None,
+        "escaper": "UnixShell",
+        "path_translator": None,
+        "shell_command_wrapper": None,
+        "shell_command_test": None,
+    }
+
+
+def _build_command(project_root: Path) -> str:
     sc_path = project_root / ".venv" / "bin" / "python"
     if not sc_path.exists():
         print(
             f"警告: {sc_path} が見つかりません。.venv が正しくセットアップされていない可能性があります。"
         )
-
-    command = (
+    base_cmd = (
         f"{shlex.quote(str(sc_path))} -m tact_downloader.obsidian_cmd --path "
         "{{event_folder_path:absolute}}"
     )
+    flake_path = project_root / "flake.nix"
+    if flake_path.exists():
+        nix_bin = shutil.which("nix") or "/run/current-system/sw/bin/nix"
+        if Path(nix_bin).exists():
+            return (
+                f"{shlex.quote(nix_bin)} --extra-experimental-features 'nix-command flakes' "
+                f"develop --command {base_cmd}"
+            )
+    return base_cmd
+
+
+def build_data_json(project_root: Path, vault_root: Path) -> JsonObject:
+    command = _build_command(project_root)
     working_dir = str(project_root)
 
+    shell_path = _resolve_shell()
     data: JsonObject = dict(DATA_JSON_TEMPLATE)
+    data["custom_shells"] = [_build_custom_shell(shell_path)]
+    data["default_shells"] = {"linux": CUSTOM_SHELL_ID}
     data["working_directory"] = working_dir
     data["shell_commands"] = [
         {
@@ -268,6 +312,40 @@ def build_updated_data(existing: JsonObject, generated: JsonObject) -> JsonObjec
     if not found:
         data["shell_commands"].append(updated_command)
     data.setdefault("settings_version", SC_VERSION)
+    gen_shells = generated.get("default_shells")
+    if isinstance(gen_shells, dict) and gen_shells:
+        existing_shells = data.get("default_shells")
+        should_update = False
+        if not isinstance(existing_shells, dict) or not existing_shells:
+            should_update = True
+        elif "linux" not in existing_shells:
+            should_update = True
+        else:
+            linux_shell = existing_shells.get("linux")
+            if isinstance(linux_shell, str) and linux_shell != CUSTOM_SHELL_ID:
+                should_update = True
+        if should_update:
+            data["default_shells"] = gen_shells
+    gen_custom = generated.get("custom_shells")
+    if isinstance(gen_custom, list) and gen_custom:
+        existing_custom = data.get("custom_shells")
+        if not isinstance(existing_custom, list):
+            data["custom_shells"] = gen_custom
+        else:
+            gen_entry = gen_custom[0] if isinstance(gen_custom[0], dict) else None
+            if gen_entry is not None:
+                found_custom = False
+                new_custom: list[JsonValue] = []
+                for entry in existing_custom:
+                    if isinstance(entry, dict) and entry.get("id") == CUSTOM_SHELL_ID:
+                        if not found_custom:
+                            new_custom.append(gen_entry)
+                            found_custom = True
+                    else:
+                        new_custom.append(entry)
+                if not found_custom:
+                    new_custom.append(gen_entry)
+                data["custom_shells"] = new_custom
     return data
 
 
