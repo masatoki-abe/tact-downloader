@@ -82,6 +82,8 @@ def download_sites(
             continue
 
         if not resources:
+            if not dry_run:
+                build_download_path(info).mkdir(parents=True, exist_ok=True)
             if on_empty:
                 on_empty(info)
             continue
@@ -157,6 +159,8 @@ def download_assignment_sites(
             result.failed += 1
             continue
         if not assignments:
+            if not dry_run:
+                build_assignment_path(info).mkdir(parents=True, exist_ok=True)
             if on_empty:
                 on_empty(info)
             continue
